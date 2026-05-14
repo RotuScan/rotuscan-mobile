@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
+// NOVO: Import do AsyncStorage para ler o perfil
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function ScannerScreen() {
   const [permission, requestPermission] = useCameraPermissions();
@@ -10,7 +12,7 @@ export default function ScannerScreen() {
   const [cameraRef, setCameraRef] = useState<any>(null);
 
   // Verifique sempre se este IP continua o mesmo no seu cmd > ipconfig
-  const SEU_IP_LOCAL = '192.168.1.8'; 
+  const SEU_IP_LOCAL = '192.168.1.11'; 
 
   if (!permission) return <View />;
   if (!permission.granted) {
@@ -28,11 +30,32 @@ export default function ScannerScreen() {
     if (cameraRef) {
       setLoading(true);
       try {
+        // 1. Lê o Perfil do Usuário
+        const lac = await AsyncStorage.getItem('@restricao_lactose');
+        const glut = await AsyncStorage.getItem('@restricao_gluten');
+        const amen = await AsyncStorage.getItem('@restricao_amendoim');
+        const acuc = await AsyncStorage.getItem('@restricao_acucar');
+
+        let restricoesAtivas = [];
+        if (lac === 'true') restricoesAtivas.push('lactose');
+        if (glut === 'true') restricoesAtivas.push('gluten');
+        if (amen === 'true') restricoesAtivas.push('amendoim');
+        if (acuc === 'true') restricoesAtivas.push('acucar');
+
+        // Se o usuário não marcou nada no perfil, avisa ele
+        if (restricoesAtivas.length === 0) {
+          Alert.alert("Atenção", "Vá ao seu Perfil e ative pelo menos uma restrição antes de escanear um rótulo!");
+          setLoading(false);
+          return;
+        }
+
+        // 2. Tira a foto
         const photo = await cameraRef.takePictureAsync({ 
           quality: 0.5,
           base64: false 
         });
 
+        // 3. Monta o pacote (Foto + Lista de Restrições)
         const formData = new FormData();
         // @ts-ignore
         formData.append('photo', {
@@ -40,9 +63,11 @@ export default function ScannerScreen() {
           name: 'photo.jpg',
           type: 'image/jpeg',
         });
+        
+        // NOVO: Enviando a lista de restrições para o servidor
+        formData.append('restricoes', JSON.stringify(restricoesAtivas));
 
-        // CORREÇÃO: Removido o '$' extra que estava antes do IP
-        const response = await fetch(`http://192.168.1.8:3000/scanner`, {
+        const response = await fetch(`http://192.168.1.11:3000/scanner`, {
           method: 'POST',
           body: formData,
           headers: {
@@ -53,22 +78,23 @@ export default function ScannerScreen() {
 
         const data = await response.json();
 
-        if (data.sucesso) {
+        // 4. Exibe o resultado
+        if (data.sucesso || data.status) { // Aceita a resposta antiga ou a nova
           if (data.status === "PERIGO") {
             setResult({
               status: "PERIGO",
-              msg: `Contém: ${data.alergicosEncontrados.join(', ')}`
+              msg: `Atenção! Encontramos: ${data.alergicosEncontrados.join(', ')}`
             });
           } else {
             setResult({
               status: "SEGURO",
-              msg: "Produto seguro para você!"
+              msg: "Produto seguro para o seu perfil!"
             });
           }
         }
       } catch (error) {
         console.error(error);
-        Alert.alert("Erro de Conexão", "Não foi possível alcançar o servidor. Verifique se o Firewall do Windows está bloqueando a porta 3000.");
+        Alert.alert("Erro de Conexão", "Não foi possível alcançar o servidor.");
       } finally {
         setLoading(false);
       }
@@ -77,27 +103,24 @@ export default function ScannerScreen() {
 
   return (
     <View style={styles.container}>
-      {/* CORREÇÃO: CameraView agora é uma tag única e ocupa todo o fundo */}
       <CameraView
         style={StyleSheet.absoluteFillObject}
         facing="back"
         ref={(ref) => setCameraRef(ref)}
       />
 
-      {/* Interface sobreposta (Overlay) */}
       <View style={styles.overlay}>
         <View style={styles.scanFrame} />
         <Text style={styles.scanText}>Alinhe os ingredientes no quadro</Text>
       </View>
 
-      {/* Base Branca (Bottom Sheet) */}
       <View style={styles.bottomSheetContainer}>
         <View style={styles.bottomSheet}>
           {loading ? (
             <ActivityIndicator size="large" color="#28a745" />
           ) : result ? (
             <View style={styles.resultBox}>
-              <Text style={styles.resultTitle}>Resultado NutriVision:</Text>
+              <Text style={styles.resultTitle}>Resultado RotuScan:</Text>
               
               <Text style={[
                 styles.resultMessage, 
@@ -125,6 +148,7 @@ export default function ScannerScreen() {
   );
 }
 
+// Estilos mantidos iguais
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, backgroundColor: '#fff' },

@@ -1,91 +1,189 @@
+require('dotenv').config();
 const express = require('express');
+const mongoose = require('mongoose');
 const multer = require('multer');
 const tesseract = require("node-tesseract-ocr");
-const sqlite3 = require('sqlite3').verbose();
 const cors = require('cors');
 
 const app = express();
-
-// Configuração do Multer para salvar a imagem corretamente
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, './uploads/')
-  },
-  filename: function (req, file, cb) {
-    cb(null, 'foto-' + Date.now() + '.jpg')
-  }
-});
-const upload = multer({ storage: storage });
-
 app.use(cors());
 app.use(express.json());
 
-// 1. BANCO DE DADOS (Agora com a trava UNIQUE para não repetir)
-const db = new sqlite3.Database('./saluscore.db');
-db.serialize(() => {
-  db.run("CREATE TABLE IF NOT EXISTS restricoes (id INTEGER PRIMARY KEY, termo TEXT UNIQUE)");
-  
-  const termosIniciais = ['leite', 'gluten', 'soja', 'amendoim', 'açúcar'];
-  const stmt = db.prepare("INSERT OR IGNORE INTO restricoes (termo) VALUES (?)");
-  termosIniciais.forEach(termo => stmt.run(termo));
-  stmt.finalize();
-});
+// ==========================================
+// 1. MODELOS (Schemas do Banco de Dados)
+// ==========================================
+const Usuario = mongoose.model('Usuario', new mongoose.Schema({
+  nome: { type: String, required: true },
+  email: { type: String, required: true, unique: true },
+  senha: { type: String, required: true }
+}));
 
-// 2. TESSERACT
+const Restricao = mongoose.model('Restricao', new mongoose.Schema({
+  categoria: { type: String, required: true, unique: true }, // ex: 'lactose'
+  sinonimos: [{ type: String }] 
+}));
+
+
+// ==========================================
+// 2. CONEXÃO COM O MONGODB ATLAS & SUPER AUTO-SEED
+// ==========================================
+mongoose.connect(process.env.MONGODB_URI)
+  .then(async () => {
+    console.log("🔥 Conectado ao MongoDB Atlas com sucesso!");
+    
+    // 1. O CAÇA-FANTASMAS: Remove regras antigas (índices) que causam o erro E11000
+    try {
+      await Restricao.collection.dropIndexes();
+    } catch (e) { 
+      // Ignora silenciosamente se não houver índices antigos
+    }
+
+    // 2. AUTO-SEED: Verifica se precisa popular
+    const count = await Restricao.countDocuments();
+    
+    // Se tiver menos de 4, significa que a instalação anterior falhou pela metade
+    if (count < 4) {
+      console.log("⚙️ Reestruturando o banco de restrições...");
+      
+      // Limpa os dados pela metade (como a lactose que ficou presa lá)
+      await Restricao.deleteMany({});
+      
+      // O SUPER DICIONÁRIO ATUALIZADO
+      const dadosIniciais = [
+        { 
+          categoria: 'lactose', 
+          sinonimos: [
+            'leite', 'lactose', 'soro de leite', 'manteiga', 'queijo', 'caseína', 
+            'creme de leite', 'nata', 'coalhada', 'iogurte', 'kefir', 'leite em pó', 
+            'proteína do leite', 'lactoalbumina', 'lactoglobulina'
+          ] 
+        },
+        { 
+          categoria: 'gluten', 
+          sinonimos: [
+            'gluten', 'glúten', 'trigo', 'centeio', 'cevada', 'malte', 'aveia', 
+            'farinha de trigo', 'espelta', 'triticale', 'kamut', 'farelo', 'germe', 
+            'amido de trigo', 'proteína vegetal hidrolisada', 'farinha'
+          ] 
+        },
+        { 
+          categoria: 'amendoim', 
+          sinonimos: [
+            'amendoim', 'amendoins', 'óleo de amendoim', 'pasta de amendoim', 
+            'manteiga de amendoim', 'paçoca', 'extrato de amendoim', 'cacauete'
+          ] 
+        },
+        { 
+          categoria: 'acucar', 
+          sinonimos: [
+            'açúcar', 'acucar', 'sacarose', 'glicose', 'frutose', 'xarope', 
+            'maltodextrina', 'dextrose', 'mel', 'melaço', 'agave', 'açúcar invertido', 
+            'amido modificado', 'xarope de milho'
+          ] 
+        }
+      ];
+      await Restricao.insertMany(dadosIniciais);
+      console.log("✅ Inteligência ampliada cadastrada no banco de dados com sucesso!");
+    } else {
+      console.log(`✅ O banco já possui ${count} categorias de restrições cadastradas.`);
+    }
+  })
+  .catch(err => console.error("❌ Erro ao conectar ao MongoDB:", err));
+  
+// ==========================================
+// 3. CONFIG TESSERACT
+// ==========================================
 const config = {
-  lang: "por",
-  oem: 1,
-  psm: 3,
+  lang: "por", oem: 1, psm: 3,
   binary: '"C:\\Program Files\\Tesseract-OCR\\tesseract.exe"' 
 };
 
-// 3. ROTA INTELIGENTE
+
+// ==========================================
+// 4. ROTAS DE AUTENTICAÇÃO
+// ==========================================
+app.post('/api/cadastro', async (req, res) => {
+  try {
+    const novoUsuario = new Usuario(req.body);
+    await novoUsuario.save();
+    res.status(201).json({ mensagem: "Usuário criado!" });
+  } catch (error) {
+    res.status(400).json({ erro: "Email já cadastrado ou erro no servidor." });
+  }
+});
+
+app.post('/api/login', async (req, res) => {
+  const { email, senha } = req.body;
+  const usuario = await Usuario.findOne({ email, senha });
+  if (!usuario) return res.status(401).json({ erro: "Credenciais inválidas." });
+  res.json({ usuarioId: usuario._id, nome: usuario.nome });
+});
+
+
+// ==========================================
+// 5. ROTA DO SCANNER (Consultando a Nuvem)
+// ==========================================
+const upload = multer({ dest: 'uploads/' });
+
 app.post('/scanner', upload.single('photo'), async (req, res) => {
   if (!req.file) return res.status(400).send('Nenhuma imagem enviada.');
 
   try {
-    console.log("Processando imagem...");
+    // 1. Pega a lista de restrições que o celular mandou
+    const restricoesUsuarioStr = req.body.restricoes;
+    const restricoesUsuario = restricoesUsuarioStr ? JSON.parse(restricoesUsuarioStr) : [];
+    
+    console.log(`🔍 Usuário analisando restrições: ${restricoesUsuario.join(', ')}`);
+
+    // 2. OCR: Usa o Tesseract para ler a imagem
     const text = await tesseract.recognize(req.file.path, config);
-    // Removemos quebras de linha para facilitar a busca
     const textLower = text.toLowerCase().replace(/(\r\n|\n|\r)/gm, " "); 
     
-    console.log("Texto lido:", textLower.substring(0, 50) + "..."); // Mostra só o começo no log para não poluir
+    console.log("--- TEXTO LIDO DO RÓTULO ---");
+    console.log(textLower);
+    console.log("----------------------------");
 
-    db.all("SELECT termo FROM restricoes", [], (err, rows) => {
-      if (err) throw err;
+    // 3. BUSCA NO BANCO DE DADOS (A Mágica acontece aqui)
+    const restricoesDoBanco = await Restricao.find({ categoria: { $in: restricoesUsuario } });
 
-      // LÓGICA ANTI FALSO-POSITIVO
-      const encontrados = rows.filter(row => {
-        const termo = row.termo.toLowerCase();
-        
-        // Se a palavra não existe no rótulo, ignora.
-        if (!textLower.includes(termo)) return false;
+    let alergicosEncontrados = [];
 
-        // Se a palavra existe, verifica se NÃO é um aviso de segurança
-        const falsoPositivo1 = `não contém ${termo}`;
-        const falsoPositivo2 = `não contem ${termo}`;
-        const falsoPositivo3 = `sem ${termo}`;
-        const falsoPositivo4 = `0% ${termo}`;
+    // 4. Analisa os dados do Banco contra o Texto do Rótulo
+    restricoesDoBanco.forEach(restricaoDoc => {
+      const categoria = restricaoDoc.categoria;
+      const palavrasProibidas = restricaoDoc.sinonimos; // Pega os sinônimos do banco
 
-        if (textLower.includes(falsoPositivo1) || textLower.includes(falsoPositivo2) || textLower.includes(falsoPositivo3) || textLower.includes(falsoPositivo4)) {
-            return false; // É falso positivo, então diz que é SEGURO
+      palavrasProibidas.forEach(palavra => {
+        if (textLower.includes(palavra)) {
+          // Verifica os falsos positivos (ex: "não contém glúten")
+          const falsoPos1 = `não contém ${palavra}`;
+          const falsoPos2 = `sem ${palavra}`;
+          const falsoPos3 = `0% ${palavra}`;
+
+          if (!textLower.includes(falsoPos1) && !textLower.includes(falsoPos2) && !textLower.includes(falsoPos3)) {
+            // Achou e é perigo real!
+            if (!alergicosEncontrados.includes(categoria)) {
+              alergicosEncontrados.push(categoria);
+            }
+          }
         }
-
-        return true; // Se tem a palavra e não tem "não contém" antes, é PERIGO
-      });
-      
-      res.json({
-        sucesso: true,
-        alergicosEncontrados: encontrados.map(e => e.termo),
-        status: encontrados.length > 0 ? "PERIGO" : "SEGURO"
       });
     });
+
+    // 5. Devolve o resultado pro celular
+    res.json({
+      sucesso: true,
+      status: alergicosEncontrados.length > 0 ? "PERIGO" : "SEGURO",
+      alergicosEncontrados: alergicosEncontrados
+    });
+
   } catch (error) {
     console.error("Erro no OCR:", error);
-    res.status(500).json({ sucesso: false, erro: error.message });
+    res.status(500).json({ erro: error.message });
   }
 });
 
+// Inicializa o Servidor
 app.listen(3000, '0.0.0.0', () => {
-  console.log("✅ Servidor rodando em http://localhost:3000");
+  console.log("🚀 Servidor Atlas ON na porta 3000");
 });
