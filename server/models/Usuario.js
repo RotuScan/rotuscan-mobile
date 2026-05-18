@@ -1,11 +1,11 @@
 const mongoose = require('mongoose');
 
-// Define como o usuário será salvo no banco de dados
+// Schema para persistencia de dados cadastrais do usuario
 const UsuarioSchema = new mongoose.Schema({
   nome: { type: String, required: true },
   email: { type: String, required: true, unique: true },
   senha: { type: String, required: true },
-  // Futuramente colocaremos as intolerâncias aqui!
+  // TODO: Implementacao de preferencias de restricao vinculadas ao usuario
 });
 
 module.exports = mongoose.model('Usuario', UsuarioSchema);

@@ -1,142 +1,128 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Colors } from '../../constants/theme';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useNavigation } from 'expo-router';
+import { DrawerActions } from '@react-navigation/native';
 
 export default function HomeScreen() {
   const [nome, setNome] = useState('');
+  const [restricoes, setRestricoes] = useState<string[]>([]);
   const router = useRouter();
+  const navigation = useNavigation();
 
   useEffect(() => {
     const carregarDados = async () => {
       const nomeSalvo = await AsyncStorage.getItem('@usuario_nome');
       if (nomeSalvo) setNome(nomeSalvo);
+
+      const keys = ['lactose', 'gluten', 'amendoim'];
+      const ativas = [];
+      for (const key of keys) {
+        const val = await AsyncStorage.getItem(`@restricao_${key}`);
+        if (val === 'true') ativas.push(key.charAt(0).toUpperCase() + key.slice(1));
+      }
+      setRestricoes(ativas);
     };
     carregarDados();
-  }, []);
+  }, [restricoes]);
+
+  const abrirMenu = () => {
+    navigation.dispatch(DrawerActions.openDrawer());
+  };
 
   return (
-    <ScrollView style={styles.container}>
-      {/* Header com Avatar */}
-      <View style={styles.header}>
-        <View>
+    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      <View style={styles.headerCard}>
+        <View style={styles.topBar}>
+          <TouchableOpacity onPress={abrirMenu} style={styles.menuIcon}>
+            <Ionicons name="menu" size={32} color="#FFF" />
+          </TouchableOpacity>
+          <Text style={styles.brandName}>RotuScan</Text>
+          <View style={{ width: 32 }}></View>
+        </View>
+
+        <View style={styles.greetingContainer}>
           <Text style={styles.greeting}>Olá, {nome || 'Usuário'}!</Text>
-          <Text style={styles.subtitle}>O que vamos verificar hoje?</Text>
-        </View>
-        <View style={styles.avatarContainer}>
-          <Ionicons name="person" size={24} color="#FFF" />
+          <Text style={styles.headerSubtitle}>Sua alimentação segura começa aqui.</Text>
         </View>
       </View>
 
-      {/* Botão Principal de Scanner */}
-      <TouchableOpacity 
-        style={styles.scanButton}
-        onPress={() => router.push("/(tabs)/scanner")}
-      >
-        <Ionicons name="barcode-outline" size={40} color="#FFF" />
-        <Text style={styles.scanButtonText}>Escanear Rótulo</Text>
-      </TouchableOpacity>
+      <View style={styles.content}>
+        <Text style={styles.sectionTitle}>Suas Restrições</Text>
+        <View style={styles.chipsContainer}>
+          {restricoes.length > 0 ? (
+            restricoes.map((item) => (
+              <View key={item} style={styles.chipRed}>
+                <Ionicons name="warning" size={16} color="#D32F2F" style={{ marginRight: 6 }} />
+                <Text style={styles.chipTextRed}>{item}</Text>
+              </View>
+            ))
+          ) : (
+            <Text style={styles.noRestricoes}>Nenhuma restrição ativa no momento.</Text>
+          )}
+        </View>
 
-      {/* Seção de Dicas/Novidades */}
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>Dicas RotuScan</Text>
-      </View>
+        <View style={styles.grid}>
+          <TouchableOpacity style={styles.actionCard} activeOpacity={0.8}>
+            <View style={[styles.iconContainer, { backgroundColor: '#DCFCE7' }]}>
+              <Ionicons name="time-outline" size={32} color="#16A34A" />
+            </View>
+            <Text style={styles.actionTitle}>Últimos Scans</Text>
+          </TouchableOpacity>
 
-      <View style={styles.card}>
-        <View style={styles.cardIcon}>
-          <Ionicons name="information-circle" size={28} color={Colors.light.primary} />
+          <TouchableOpacity style={styles.actionCard} activeOpacity={0.8}>
+            <View style={[styles.iconContainer, { backgroundColor: '#FEF9C3' }]}>
+              <Ionicons name="star-outline" size={32} color="#CA8A04" />
+            </View>
+            <Text style={styles.actionTitle}>Meus Favoritos</Text>
+          </TouchableOpacity>
         </View>
-        <View style={styles.cardContent}>
-          <Text style={styles.cardTitle}>Cuidado com Traços</Text>
-          <Text style={styles.cardDescription}>
-            Sempre verifique o aviso "Pode conter traços de..." mesmo que o ingrediente não esteja na lista principal.
-          </Text>
-        </View>
-      </View>
-      
-      <View style={styles.card}>
-        <View style={styles.cardIcon}>
-          <Ionicons name="nutrition" size={28} color={Colors.light.primary} />
-        </View>
-        <View style={styles.cardContent}>
-          <Text style={styles.cardTitle}>Nomes Ocultos</Text>
-          <Text style={styles.cardDescription}>
-            O glúten pode estar escondido com nomes como malte, cevada ou espelta. O scanner te ajuda nisso!
-          </Text>
-        </View>
-      </View>
 
+        <Text style={[styles.sectionTitle, { marginTop: 30 }]}>Dica do Dia</Text>
+        <View style={styles.infoCard}>
+          <Ionicons name="leaf" size={28} color="#16A34A" />
+          <Text style={styles.infoText}>Verifique os rótulos regularmente. As composições dos produtos podem sofrer alterações pelos fabricantes sem aviso prévio.</Text>
+        </View>
+      </View>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FAFAFA' },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 24,
-    paddingTop: 50,
-    backgroundColor: '#FFF',
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0'
+  container: { flex: 1, backgroundColor: '#F8FAFC' },
+  headerCard: {
+    backgroundColor: '#16A34A', paddingTop: 50, paddingBottom: 30, paddingHorizontal: 20,
+    borderBottomLeftRadius: 30, borderBottomRightRadius: 30, elevation: 5,
   },
-  greeting: { fontSize: 24, fontWeight: 'bold', color: '#333' },
-  subtitle: { fontSize: 14, color: '#777', marginTop: 4 },
-  avatarContainer: {
-    width: 45,
-    height: 45,
-    borderRadius: 25,
-    backgroundColor: Colors.light.primary,
-    justifyContent: 'center',
-    alignItems: 'center'
+  topBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  menuIcon: { padding: 5 },
+  brandName: { color: '#FFF', fontSize: 22, fontWeight: '900', letterSpacing: 1 },
+  greetingContainer: { marginTop: 10 },
+  greeting: { fontSize: 24, fontWeight: 'bold', color: '#FFF' },
+  headerSubtitle: { fontSize: 15, color: '#DCFCE7', marginTop: 4 },
+  content: { padding: 20 },
+  sectionTitle: { fontSize: 18, fontWeight: '700', color: '#334155', marginBottom: 12 },
+  chipsContainer: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 25 },
+  chipRed: {
+    flexDirection: 'row', alignItems: 'center', backgroundColor: '#FEF2F2', 
+    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, marginRight: 10,
+    marginBottom: 10, borderWidth: 1, borderColor: '#FECACA',
   },
-  scanButton: {
-    backgroundColor: Colors.light.primary,
-    margin: 24,
-    padding: 20,
-    borderRadius: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+  chipTextRed: { color: '#D32F2F', fontWeight: '700', fontSize: 13 },
+  noRestricoes: { color: '#94A3B8', fontStyle: 'italic' },
+  grid: { flexDirection: 'row', justifyContent: 'space-between' },
+  actionCard: {
+    backgroundColor: '#FFF', width: '48%', padding: 20, borderRadius: 16, alignItems: 'center',
+    elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 5,
   },
-  scanButtonText: {
-    color: '#FFF',
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginLeft: 15
+  iconContainer: {
+    width: 56, height: 56, borderRadius: 28, justifyContent: 'center', alignItems: 'center', marginBottom: 12,
   },
-  sectionHeader: { paddingHorizontal: 24, paddingBottom: 10 },
-  sectionTitle: { fontSize: 18, fontWeight: 'bold', color: '#333' },
-  card: {
-    backgroundColor: '#FFF',
-    marginHorizontal: 24,
-    marginBottom: 15,
-    padding: 16,
-    borderRadius: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#EFEFEF'
+  actionTitle: { fontSize: 14, fontWeight: 'bold', color: '#334155', textAlign: 'center' },
+  infoCard: {
+    backgroundColor: '#F0FDF4', padding: 16, borderRadius: 16, flexDirection: 'row',
+    alignItems: 'center', borderWidth: 1, borderColor: '#BBF7D0',
   },
-  cardIcon: {
-    width: 50,
-    height: 50,
-    borderRadius: 10,
-    backgroundColor: '#F0FFF0',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 15
-  },
-  cardContent: { flex: 1 },
-  cardTitle: { fontSize: 16, fontWeight: 'bold', color: '#333', marginBottom: 4 },
-  cardDescription: { fontSize: 13, color: '#666', lineHeight: 18 }
+  infoText: { flex: 1, marginLeft: 16, fontSize: 14, color: '#166534', lineHeight: 20, fontWeight: '500' }
 });

@@ -15,43 +15,40 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-  const verificarLogin = async () => {
-    const id = await AsyncStorage.getItem('@usuario_id');
-    if (id) {
-      // Se achou um ID, pula direto para a Home!
-      router.replace("/(tabs)/home");
-    }
-  };
-  verificarLogin();
+    const verificarLogin = async () => {
+      const id = await AsyncStorage.getItem('@usuario_id');
+      if (id) {
+        router.replace("/(tabs)/home");
+      }
+    };
+    verificarLogin();
   }, []);
 
   const handleLogin = async () => {
-  if (!email || !senha) return Alert.alert("Erro", "Preencha tudo.");
-  setLoading(true);
-  try {
-    const response = await api.post('/api/login', { email, senha });
+    if (!email || !senha) return Alert.alert("Erro", "Preencha tudo.");
+    setLoading(true);
+    try {
+      const response = await api.post('/api/login', { email, senha });
 
-    // --- AQUI ENTRA A MEMÓRIA ---
-    // Guardamos o ID e o Nome como Strings
-    await AsyncStorage.setItem('@usuario_id', response.data.usuarioId);
-    await AsyncStorage.setItem('@usuario_nome', response.data.nome);
-    // ----------------------------
+      // Armazenamento de dados da sessao
+      await AsyncStorage.setItem('@usuario_id', response.data.usuarioId);
+      await AsyncStorage.setItem('@usuario_nome', response.data.nome);
+      await AsyncStorage.setItem('@usuario_email', email);
 
-    router.replace("/(tabs)/home");
-  } catch (error) {
-    Alert.alert("Erro", "E-mail ou senha incorretos.");
-  } finally {
-    setLoading(false);
-  }
+      router.replace("/(tabs)/home");
+    } catch (error) {
+      Alert.alert("Erro", "E-mail ou senha incorretos.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <View style={styles.containerLogo}>
-        {/* Mudei o caminho abaixo para uma imagem que EXISTE na sua pasta assets/images */}
         <Image
           style={styles.logo}
-          source={require("../assets/images/react-logo.png")} 
+          source={require("../assets/images/logo.png")} 
         />
         <Text style={styles.titleRotuScan}>
           <Text style={{ color: "#2D7A5D" }}>Rotu</Text>

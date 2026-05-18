@@ -32,7 +32,7 @@ export default function CadastroScreen() {
   
   const [loading, setLoading] = useState(false);
 
-  // Função REAL de cadastro no Banco
+  // Processamento do cadastro no backend
   const handleCadastro = async () => {
     // 1. Valida se preencheu tudo
     if (!nome || !email || !senha || !confirmarSenha) {
@@ -49,25 +49,32 @@ export default function CadastroScreen() {
     setLoading(true);
 
     try {
-      // 3. Envia para a sua API real (que vai salvar no MongoDB)
-      await api.post('/api/cadastro', { 
+      // Requisição para persistência no MongoDB
+      const response = await api.post('/api/cadastro', { 
         nome: nome, 
         email: email, 
         senha: senha 
       });
 
-      // 4. Se deu tudo certo
       Alert.alert("Sucesso", "Conta criada com sucesso!", [
-        { text: "OK", onPress: () => router.replace("/") } // Volta para o Login
+        { text: "OK", onPress: () => router.replace("/") } 
       ]);
 
     } catch (error: any) {
-      // 5. Se der erro (ex: e-mail já existe)
-      console.error("Erro no cadastro:", error);
-      if (error.response && error.response.data && error.response.data.erro) {
+      console.error("Erro no processo de cadastro:");
+      
+      if (error.response) {
+        // Erro retornado pelo servidor
+        console.error("Status do Erro:", error.response.status);
+        console.error("Mensagem do Servidor:", error.response.data);
         Alert.alert("Erro", error.response.data.erro);
+      } else if (error.request) {
+        // Erro de rede ou indisponibilidade do servidor
+        console.error("Sem resposta do servidor. Verifique a conexao e o IP configurado.");
+        Alert.alert("Erro de Rede", "Não foi possível conectar ao servidor. Verifique sua conexão.");
       } else {
-        Alert.alert("Erro", "Não foi possível conectar ao servidor.");
+        console.error("Mensagem:", error.message);
+        Alert.alert("Erro", "Erro desconhecido ao tentar cadastrar.");
       }
     } finally {
       setLoading(false);
@@ -76,11 +83,10 @@ export default function CadastroScreen() {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      {/* Logo + Nome (Seguindo sua referência) */}
       <View style={styles.containerLogo}>
         <Image
           style={styles.logo}
-          source={require("../assets/images/react-logo.png")} // Lembre de trocar pela sua logo depois
+          source={require("../assets/images/logo.png")}
         />
         <Text style={styles.titleRotuScan}>
           <Text style={{ color: "#2D7A5D" }}>Rotu</Text>
