@@ -75,7 +75,8 @@ Na raiz do projeto backend, crie um arquivo chamado:
 
 Adicione a seguinte estrutura:
 
-MONGODB_URI=mongodb+srv://USUARIO:SENHA@CLUSTER.mongodb.net/rotuscan?retryWrites=true&w=majority
+MONGODB_URI=mongodb+srv://admin-rotuscan:12RmqRKERjaDuarc@rotuscan-cluster.23cdx3v.mongodb.net/RotuScanDB?retryWrites=true&w=majority
+PORT=3000
 
 Substitua:
 
