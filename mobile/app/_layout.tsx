@@ -6,14 +6,14 @@ import { DrawerContentScrollView, DrawerItem } from '@react-navigation/drawer';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'expo-router';
-import { DrawerActions } from '@react-navigation/native';
+import { DrawerActions, ThemeProvider, DefaultTheme } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 function CustomDrawerContent(props: any) {
   const [nome, setNome] = useState('');
   const [email, setEmail] = useState('');
   const router = useRouter();
-  const insets = useSafeAreaInsets(); // Obtem as dimensoes das safe areas do dispositivo
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     const carregarDados = async () => {
@@ -40,76 +40,84 @@ function CustomDrawerContent(props: any) {
     ]);
   };
 
+  const navegarPara = (rota: string) => {
+    props.navigation.dispatch(DrawerActions.closeDrawer());
+    router.push(rota as any);
+  };
+
   return (
-    <View style={{ flex: 1, backgroundColor: '#FFF' }}>
-      
-      <View style={[styles.drawerHeader, { paddingTop: insets.top + 20 }]}>
-        <TouchableOpacity 
-          onPress={() => props.navigation.dispatch(DrawerActions.closeDrawer())} 
-          style={styles.closeButton}
-        >
-          <Ionicons name="close" size={26} color="#FFF" />
-        </TouchableOpacity>
-        
-        <View style={styles.profileInfoContainer}>
-          <View style={styles.avatarCircle}>
-            <Ionicons name="person" size={32} color="#16A34A" />
+    <ThemeProvider value={DefaultTheme}>
+      <View style={{ flex: 1, backgroundColor: '#FFF' }}>
+        <View style={[styles.drawerHeader, { paddingTop: insets.top + 20 }]}>
+          <TouchableOpacity 
+            onPress={() => props.navigation.dispatch(DrawerActions.closeDrawer())} 
+            style={styles.closeButton}
+          >
+            <Ionicons name="close" size={26} color="#FFF" />
+          </TouchableOpacity>
+          
+          <View style={styles.profileInfoContainer}>
+            <View style={styles.avatarCircle}>
+              <Ionicons name="person" size={32} color="#16A34A" />
+            </View>
+            <Text style={styles.userName}>{nome || 'Usuário'}</Text>
+            <Text style={styles.userEmail}>{email || 'usuario@email.com'}</Text>
           </View>
-          <Text style={styles.userName}>{nome || 'Usuário'}</Text>
-          <Text style={styles.userEmail}>{email || 'usuario@email.com'}</Text>
+        </View>
+
+        <DrawerContentScrollView {...props} contentContainerStyle={{ paddingTop: 10 }}>
+          <View style={styles.drawerItemsContainer}>
+            <DrawerItem
+              icon={() => <Ionicons name="person-outline" size={22} color="#334155" />}
+              label="Dados pessoais"
+              labelStyle={styles.drawerItemLabel}
+              onPress={() => navegarPara('/dados-pessoais')}
+            />
+            <DrawerItem
+              icon={() => <Ionicons name="warning-outline" size={22} color="#334155" />}
+              label="Minhas restrições"
+              labelStyle={styles.drawerItemLabel}
+              onPress={() => navegarPara('/restricoes')}
+            />
+            <DrawerItem
+              icon={() => <Ionicons name="notifications-outline" size={22} color="#334155" />}
+              label="Notificações"
+              labelStyle={styles.drawerItemLabel}
+              onPress={() => {}}
+            />
+            <DrawerItem
+              icon={() => <Ionicons name="settings-outline" size={22} color="#334155" />}
+              label="Configurações"
+              labelStyle={styles.drawerItemLabel}
+              onPress={() => navegarPara('/configuracoes')}
+            />
+          </View>
+        </DrawerContentScrollView>
+
+        <View style={styles.drawerFooter}>
+          <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
+            <Ionicons name="log-out-outline" size={24} color="#EF4444" />
+            <Text style={styles.logoutText}>Sair da Conta</Text>
+          </TouchableOpacity>
         </View>
       </View>
-
-      <DrawerContentScrollView {...props} contentContainerStyle={{ paddingTop: 10 }}>
-        <View style={styles.drawerItemsContainer}>
-          <DrawerItem
-            icon={({ size }) => <Ionicons name="person-outline" size={22} color="#334155" />}
-            label="Dados pessoais"
-            labelStyle={styles.drawerItemLabel}
-            onPress={() => router.push('/(tabs)/dados-pessoais')}
-          />
-          <DrawerItem
-            icon={({ size }) => <Ionicons name="warning-outline" size={22} color="#334155" />}
-            label="Minhas restrições"
-            labelStyle={styles.drawerItemLabel}
-            onPress={() => router.push('/(tabs)/restricoes')}
-          />
-          <DrawerItem
-            icon={({ size }) => <Ionicons name="notifications-outline" size={22} color="#334155" />}
-            label="Notificações"
-            labelStyle={styles.drawerItemLabel}
-            onPress={() => {}}
-          />
-          <DrawerItem
-            icon={({ size }) => <Ionicons name="settings-outline" size={22} color="#334155" />}
-            label="Configurações"
-            labelStyle={styles.drawerItemLabel}
-            onPress={() => router.push('/(tabs)/configuracoes')}
-          />
-        </View>
-      </DrawerContentScrollView>
-
-      <View style={styles.drawerFooter}>
-        <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
-          <Ionicons name="log-out-outline" size={24} color="#EF4444" />
-          <Text style={styles.logoutText}>Sair da Conta</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
+    </ThemeProvider>
   );
 }
 
 export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <Drawer
-        drawerContent={(props) => <CustomDrawerContent {...props} />}
-        screenOptions={{ headerShown: false }}
-      >
-        <Drawer.Screen name="index" options={{ swipeEnabled: false }} />
-        <Drawer.Screen name="cadastro" options={{ swipeEnabled: false }} />
-        <Drawer.Screen name="(tabs)" />
-      </Drawer>
+      <ThemeProvider value={DefaultTheme}>
+        <Drawer
+          drawerContent={(props) => <CustomDrawerContent {...props} />}
+          screenOptions={{ headerShown: false, drawerType: 'slide' }}
+        >
+          <Drawer.Screen name="index" options={{ swipeEnabled: false }} />
+          <Drawer.Screen name="cadastro" options={{ swipeEnabled: false }} />
+          <Drawer.Screen name="(tabs)" options={{ swipeEnabled: true }} />
+        </Drawer>
+      </ThemeProvider>
     </GestureHandlerRootView>
   );
 }

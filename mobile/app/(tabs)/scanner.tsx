@@ -56,7 +56,7 @@ export default function ScannerScreen() {
     };
   }, []);
 
-  const SEU_IP_LOCAL = '192.168.1.8'; 
+  const SEU_IP_LOCAL = '192.168.1.3'; 
 
   if (!permission) return <View />;
   if (!permission.granted) {
