@@ -30,7 +30,7 @@ export default function CadastroScreen() {
     Geist_700Bold,
   });
 
-  const backgroundImage = require("../images/Fundo.png");
+  const backgroundImage = require("../assets/images/Fundo.png");
 
   // ESTADOS PARA OS CAMPOS DE CADASTRO
   const [usuario, setUsuario] = useState("Endrew R Lemos");

@@ -14,7 +14,7 @@ import {
 import { Feather, Ionicons } from "@expo/vector-icons";
 
 import TabBar from "../components/TabBar/indexTab";
-
+import AppHeader from "../components/Header/AppHeader";
 
 import DrawerMenu from "@/components/Drawer/DrawerMenu";
 
@@ -142,32 +142,7 @@ export default function Historico() {
         backgroundColor="#F7F9F8"
       />
 
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          activeOpacity={0.7}
-          onPress={() => setDrawerVisible(true)}
-          accessibilityRole="button"
-          accessibilityLabel="Abrir menu"
-          style={styles.menuButton}
-        >
-          <Feather
-            name="menu"
-            size={24}
-            color="#191C1D"
-          />
-        </TouchableOpacity>
-
-        <View style={styles.logoContainer}>
-          <Text style={styles.logoRotu}>Rotu</Text>
-          <Text style={styles.logoScan}>Scan</Text>
-        </View>
-
-        <Image
-          source={require("../images/user.png")}
-          style={styles.avatarImage}
-        />
-      </View>
+      <AppHeader onMenuPress={() => setDrawerVisible(true)} />
 
       {/* Conteúdo do histórico */}
       <ScrollView
@@ -380,49 +355,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#F7F9F8",
   },
 
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
-  },
 
-  menuButton: {
-    width: 36,
-    height: 36,
-    alignItems: "flex-start",
-    justifyContent: "center",
-  },
-
-  logoContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-
-  logoRotu: {
-    fontFamily: "Geist_700Bold",
-    fontSize: 20,
-    color: "#006D37",
-    letterSpacing: -0.5,
-  },
-
-  logoScan: {
-    fontFamily: "Geist_700Bold",
-    fontSize: 20,
-    color: "#F59E0B",
-    letterSpacing: -0.3,
-  },
-
-  avatarImage: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-  },
 
   conteudo: {
     paddingHorizontal: 17,

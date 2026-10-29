@@ -6,6 +6,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.78, 300);
 
 export const styles = StyleSheet.create({
+  
   modalContainer: {
     flex: 1,
     flexDirection: "row",
@@ -128,7 +129,7 @@ export const styles = StyleSheet.create({
     borderTopLeftRadius: 2,
     borderTopRightRadius: 2,
   },
-drawerImage:{
+  drawerImage:{
     position: "absolute",
     bottom: 0,
     left: 0,

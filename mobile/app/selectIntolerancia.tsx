@@ -21,9 +21,9 @@ import { SafeAreaView } from "react-native-safe-area-context";
 const { width } = Dimensions.get("window");
 
 const iconImages = {
-  gluten: require("../images/iconGluten.png"),
-  lactose: require("../images/iconLactose.png"),
-  amendoim: require("../images/iconAmendoim.png"),
+  gluten: require("../assets/images/iconGluten.png"),
+  lactose: require("../assets/images/iconLactose.png"),
+  amendoim: require("../assets/images/iconAmendoim.png"),
 } as const;
 
 export default function IntoleranciasScreen() {

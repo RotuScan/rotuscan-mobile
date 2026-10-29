@@ -8,7 +8,7 @@ import {
   Geist_700Bold,
 } from "@expo-google-fonts/geist";
 import { useFonts } from "@expo-google-fonts/geist/useFonts";
-import { Feather, Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Feather, Ionicons, MaterialCommunityIcons, Zocial } from "@expo/vector-icons";
 import { router } from "expo-router";
 
 import {
@@ -24,8 +24,8 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import TabBar from "../components/TabBar/indexTab";
+import AppHeader from "../components/Header/AppHeader";
 
-import DrawerMenu from "@/components/Drawer/DrawerMenu";
 
 type StatusProduto = "seguro" | "risco";
 
@@ -102,28 +102,7 @@ export default function HomeScreen() {
     <SafeAreaView style={styles.container} edges={["top"]}>
       <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
-      {/* HEADER */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          activeOpacity={0.7}
-          onPress={() => setDrawerVisible(true)}
-          accessibilityLabel="Abrir menu"
-          accessibilityRole="button"
-          style={styles.menuButton}
-        >
-          <Feather name="menu" size={24} color="#191C1D" />
-        </TouchableOpacity>
-
-        <View style={styles.logoContainer}>
-          <Text style={styles.logoRotu}>Rotu</Text>
-          <Text style={styles.logoScan}>Scan</Text>
-        </View>
-
-        <Image
-          source={require("../images/user.png")}
-          style={styles.avatarImage}
-        />
-      </View>
+      <AppHeader onMenuPress={() => setDrawerVisible(true)} />
 
       {/* CONTEÚDO PRINCIPAL */}
       <ScrollView
@@ -140,7 +119,7 @@ export default function HomeScreen() {
           <View style={styles.intolerancia}>
             <Image
               style={styles.iconIntoleranciaGluten}
-              source={require("../images/iconGluInt.png")}
+              source={require("../assets/images/iconGluInt.png")}
             />
             <Text style={styles.intoleranciaText}>Glúten</Text>
           </View>
@@ -148,7 +127,7 @@ export default function HomeScreen() {
           <View style={styles.intolerancia}>
             <Image
               style={styles.iconIntolerancia}
-              source={require("../images/iconLacInt.png")}
+              source={require("../assets/images/iconLacInt.png")}
             />
             <Text style={styles.intoleranciaText}>Lactose</Text>
           </View>
@@ -216,6 +195,7 @@ export default function HomeScreen() {
 
           <TouchableOpacity
             activeOpacity={0.7}
+            onPress={() => router.push("../itensCurtidos") }
             accessibilityLabel="Ver todos os itens curtidos"
           >
             <Feather name="chevron-right" size={18} color="#191C1D" />
@@ -283,7 +263,7 @@ export default function HomeScreen() {
             Recém Escaneados
           </Text>
 
-          <TouchableOpacity activeOpacity={0.7}>
+          <TouchableOpacity activeOpacity={0.7} onPress={() => router.push("../historico")}>
             <Text style={styles.historicoLink}>Histórico</Text>
           </TouchableOpacity>
         </View>
@@ -354,11 +334,7 @@ export default function HomeScreen() {
       {/* BARRA DE NAVEGAÇÃO INFERIOR */}
       <TabBar abaAtiva="inicio" />
 
-      {/* DRAWER MENU */}
-      <DrawerMenu
-        visible={drawerVisible}
-        onClose={() => setDrawerVisible(false)}
-      />
+    
     </SafeAreaView>
   );
 }
@@ -399,50 +375,7 @@ export const styles = StyleSheet.create({
     paddingBottom: 30,
   },
 
-  // HEADER
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
-  },
 
-  menuButton: {
-    width: 36,
-    height: 36,
-    alignItems: "flex-start",
-    justifyContent: "center",
-  },
-
-  logoContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-
-  logoRotu: {
-    fontFamily: "Geist_700Bold",
-    fontSize: 20,
-    color: "#006D37",
-    letterSpacing: -0.5,
-  },
-
-  logoScan: {
-    fontFamily: "Geist_700Bold",
-    fontSize: 20,
-    color: "#F59E0B",
-    letterSpacing: -0.3,
-  },
-
-  avatarImage: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-  },
 
   greeting: {
     fontFamily: "Geist_700Bold",

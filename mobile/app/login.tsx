@@ -20,7 +20,7 @@ import { router } from "expo-router";
 
 const { width } = Dimensions.get("window");
 
-const backgroundImage = require("../images/Fundo.png");
+const backgroundImage = require("../assets/images/Fundo.png");
 
 export default function LoginScreen() {
   const [fontsLoaded] = useFonts({

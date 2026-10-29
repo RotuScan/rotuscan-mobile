@@ -8,7 +8,7 @@ import {
 import { useFonts } from "@expo-google-fonts/geist/useFonts";
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import React from "react";
+import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -21,6 +21,8 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import AppHeader from "../components/Header/AppHeader";
+import TabBar from "@/components/TabBar/indexTab";
 
 const COLORS = {
   background: "#F5F7FA",
@@ -89,6 +91,17 @@ export default function PerfilScreen() {
       ]
     );
   }
+  const [drawerVisible, setDrawerVisible] = useState(false);
+
+  const handleMenuPress = () => {
+    setDrawerVisible(true);
+    //onMenuPress?.();
+  };
+
+  const handleCloseDrawer = () => {
+    setDrawerVisible(false);
+  };
+
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -97,36 +110,7 @@ export default function PerfilScreen() {
         backgroundColor={COLORS.background}
       />
 
-      {/* Cabeçalho */}
-      <View style={[styles.header, { width: cardWidth }]}>
-        <TouchableOpacity
-          style={styles.headerButton}
-          activeOpacity={0.7}
-          onPress={() => abrirRota("../")}
-          accessibilityLabel="Abrir menu"
-        >
-          <Feather name="menu" size={21} color="#59636D" />
-        </TouchableOpacity>
-
-        <View style={styles.logo}>
-          <Text style={styles.logoRotu}>Rotu</Text>
-          <Text style={styles.logoScan}>Scan</Text>
-        </View>
-
-        <TouchableOpacity
-          style={styles.notificationButton}
-          activeOpacity={0.7}
-          onPress={() => abrirRota("../alertas")}
-          accessibilityLabel="Notificações"
-        >
-          <Ionicons
-            name="notifications-outline"
-            size={17}
-            color="#697580"
-          />
-          <View style={styles.notificationDot} />
-        </TouchableOpacity>
-      </View>
+          <AppHeader onMenuPress={() => setDrawerVisible(true)} />
 
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -139,6 +123,7 @@ export default function PerfilScreen() {
         <View style={styles.profileCard}>
           <View style={styles.profileTop}>
             <View style={styles.avatarContainer}>
+            
               <View style={styles.avatar}>
                 <Text style={styles.avatarLetter}>E</Text>
               </View>
@@ -171,16 +156,7 @@ export default function PerfilScreen() {
 
           <View style={styles.profileDivider} />
 
-          <View style={styles.profileFooter}>
-            <Feather
-              name="calendar"
-              size={11}
-              color={COLORS.greenBright}
-            />
-            <Text style={styles.profileDate}>
-              Usuário desde Março de 2024
-            </Text>
-          </View>
+        
         </View>
 
         {/* Intolerâncias */}
@@ -309,11 +285,18 @@ export default function PerfilScreen() {
         </TouchableOpacity>
 
         <View style={styles.bottomSpace} />
+  
+        
       </ScrollView>
-    </SafeAreaView>
+        <TabBar abaAtiva="historico" />
+          </SafeAreaView>
+          
   );
+  
 }
 
+
+//Dados Usuarios
 function Option({
   icon,
   title,
@@ -347,7 +330,9 @@ function Option({
         size={15}
         color="#91A3BA"
       />
+      
     </TouchableOpacity>
+    
   );
 }
 
@@ -365,39 +350,6 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
   },
 
-  header: {
-    height: 44,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 2,
-  },
-
-  headerButton: {
-    width: 30,
-    height: 34,
-    alignItems: "flex-start",
-    justifyContent: "center",
-  },
-
-  logo: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-
-  logoRotu: {
-    fontFamily: "Geist_700Bold",
-    fontSize: 14,
-    color: COLORS.green,
-    letterSpacing: -0.6,
-  },
-
-  logoScan: {
-    fontFamily: "Geist_700Bold",
-    fontSize: 14,
-    color: "#F59E0B",
-    letterSpacing: -0.4,
-  },
 
   notificationButton: {
     width: 28,

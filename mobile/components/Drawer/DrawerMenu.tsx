@@ -76,7 +76,7 @@ export default function DrawerMenu({ visible, onClose }: DrawerMenuProps) {
             <View style={styles.avatarContainer}>
           {/* PERFIL   
               <Image
-                source={require("../images/user.png")}
+                source={require("../../assets/images/user.png")}
                 style={styles.avatar}
                 resizeMode="cover"
               /> */}
@@ -115,7 +115,7 @@ export default function DrawerMenu({ visible, onClose }: DrawerMenuProps) {
 
 
            <Image
-                source={require("../../images/Drawer.png")}
+                source={require("../../assets/images/Drawer.png")}
                style={styles.drawerImage}
               /> 
           
