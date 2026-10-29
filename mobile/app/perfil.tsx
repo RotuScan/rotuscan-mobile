@@ -8,7 +8,7 @@ import {
 import { useFonts } from "@expo-google-fonts/geist/useFonts";
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
-import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -21,6 +21,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+
 import AppHeader from "../components/Header/AppHeader";
 import TabBar from "@/components/TabBar/indexTab";
 
@@ -53,17 +54,10 @@ export default function PerfilScreen() {
     Geist_700Bold,
   });
 
+  const [drawerVisible, setDrawerVisible] = useState(false);
   const { width } = useWindowDimensions();
 
   const cardWidth = Math.min(width - 32, 440);
-
-  if (!fontsLoaded) {
-    return (
-      <View style={styles.loading}>
-        <ActivityIndicator size="large" color={COLORS.green} />
-      </View>
-    );
-  }
 
   const intolerancias = ["Glúten", "Lactose"];
 
@@ -84,24 +78,28 @@ export default function PerfilScreen() {
           text: "Sair",
           style: "destructive",
           onPress: () => {
-            // Adicione aqui a limpeza da sessão de autenticação.
             router.replace("../login" as never);
           },
         },
       ]
     );
   }
-  const [drawerVisible, setDrawerVisible] = useState(false);
 
-  const handleMenuPress = () => {
+  function handleMenuPress() {
     setDrawerVisible(true);
-    //onMenuPress?.();
-  };
+  }
 
-  const handleCloseDrawer = () => {
+  function handleCloseDrawer() {
     setDrawerVisible(false);
-  };
+  }
 
+  if (!fontsLoaded) {
+    return (
+      <View style={styles.loading}>
+        <ActivityIndicator size="large" color={COLORS.green} />
+      </View>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -110,9 +108,12 @@ export default function PerfilScreen() {
         backgroundColor={COLORS.background}
       />
 
-          <AppHeader onMenuPress={() => setDrawerVisible(true)} />
+      <View style={styles.headerContainer}>
+        <AppHeader onMenuPress={handleMenuPress} />
+      </View>
 
       <ScrollView
+        style={styles.scrollView}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[
           styles.scrollContent,
@@ -123,7 +124,6 @@ export default function PerfilScreen() {
         <View style={styles.profileCard}>
           <View style={styles.profileTop}>
             <View style={styles.avatarContainer}>
-            
               <View style={styles.avatar}>
                 <Text style={styles.avatarLetter}>E</Text>
               </View>
@@ -136,7 +136,7 @@ export default function PerfilScreen() {
               >
                 <Feather
                   name="edit-2"
-                  size={10}
+                  size={11}
                   color={COLORS.white}
                 />
               </TouchableOpacity>
@@ -156,7 +156,16 @@ export default function PerfilScreen() {
 
           <View style={styles.profileDivider} />
 
-        
+          <View style={styles.profileFooter}>
+            <Feather
+              name="shield"
+              size={13}
+              color={COLORS.green}
+            />
+            <Text style={styles.profileDate}>
+              Sua saúde em primeiro lugar
+            </Text>
+          </View>
         </View>
 
         {/* Intolerâncias */}
@@ -183,7 +192,7 @@ export default function PerfilScreen() {
                       ? "nutrition-outline"
                       : "water-outline"
                   }
-                  size={12}
+                  size={15}
                   color="#596A78"
                 />
 
@@ -213,7 +222,7 @@ export default function PerfilScreen() {
               PROGRESSO DE SAÚDE
             </Text>
 
-            <Text style={styles.healthDays}>12 Dias</Text>
+            <Text style={styles.healthDays}>12 dias</Text>
           </View>
 
           <View style={styles.progressBackground}>
@@ -238,7 +247,7 @@ export default function PerfilScreen() {
           <View style={styles.optionsCard}>
             <Option
               icon="user"
-              title="Dados Pessoais & Metas"
+              title="Dados pessoais e metas"
               onPress={() => abrirRota("../dados-pessoais")}
             />
 
@@ -246,7 +255,7 @@ export default function PerfilScreen() {
 
             <Option
               icon="clock"
-              title="Histórico de Análises"
+              title="Histórico de análises"
               subtitle="45 produtos analisados"
               onPress={() => abrirRota("../historico")}
             />
@@ -255,7 +264,7 @@ export default function PerfilScreen() {
 
             <Option
               icon="bell"
-              title="Alertas de Contaminação"
+              title="Alertas de contaminação"
               onPress={() => abrirRota("../alertas")}
             />
 
@@ -263,7 +272,7 @@ export default function PerfilScreen() {
 
             <Option
               icon="help-circle"
-              title="Ajuda e Perguntas Frequentes"
+              title="Ajuda e perguntas frequentes"
               onPress={() => abrirRota("../ajuda")}
             />
           </View>
@@ -277,26 +286,31 @@ export default function PerfilScreen() {
         >
           <Feather
             name="log-out"
-            size={12}
+            size={16}
             color={COLORS.red}
           />
 
-          <Text style={styles.logoutText}>Sair da Conta</Text>
+          <Text style={styles.logoutText}>Sair da conta</Text>
         </TouchableOpacity>
 
         <View style={styles.bottomSpace} />
-  
-        
       </ScrollView>
-        <TabBar abaAtiva="historico" />
-          </SafeAreaView>
-          
+
+      {/* Navegação inferior */}
+      <View style={styles.tabBarContainer}>
+        <TabBar abaAtiva="perfil" />
+      </View>
+
+      {/*
+        drawerVisible controla o estado do menu.
+        Para exibir o Drawer, renderize aqui o componente
+        DrawerMenu que já existe no seu projeto, conforme
+        as propriedades exigidas por ele.
+      */}
+    </SafeAreaView>
   );
-  
 }
 
-
-//Dados Usuarios
 function Option({
   icon,
   title,
@@ -312,7 +326,7 @@ function Option({
       <View style={styles.optionIcon}>
         <Feather
           name={icon}
-          size={15}
+          size={18}
           color="#718092"
         />
       </View>
@@ -321,18 +335,18 @@ function Option({
         <Text style={styles.optionTitle}>{title}</Text>
 
         {subtitle ? (
-          <Text style={styles.optionSubtitle}>{subtitle}</Text>
+          <Text style={styles.optionSubtitle}>
+            {subtitle}
+          </Text>
         ) : null}
       </View>
 
       <Feather
         name="chevron-right"
-        size={15}
+        size={18}
         color="#91A3BA"
       />
-      
     </TouchableOpacity>
-    
   );
 }
 
@@ -340,7 +354,6 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: COLORS.background,
-    alignItems: "center",
   },
 
   loading: {
@@ -350,55 +363,42 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
   },
 
-
-  notificationButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: COLORS.white,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#EDF0F3",
+  headerContainer: {
+    width: "100%",
+    alignSelf: "center",
   },
 
-  notificationDot: {
-    position: "absolute",
-    top: 5,
-    right: 6,
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#A5B4FC",
+  scrollView: {
+    flex: 1,
+    width: "100%",
   },
 
   scrollContent: {
-    paddingTop: 5,
-    paddingHorizontal: 0,
-    paddingBottom: 10,
+    paddingTop: 8,
+    paddingBottom: 16,
     alignSelf: "center",
   },
 
   profileCard: {
     backgroundColor: COLORS.white,
-    borderRadius: 15,
-    paddingHorizontal: 13,
-    paddingTop: 14,
-    paddingBottom: 12,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingTop: 18,
+    paddingBottom: 16,
     alignItems: "center",
     shadowColor: "#223344",
     shadowOffset: {
       width: 0,
       height: 2,
     },
-    shadowOpacity: 0.025,
+    shadowOpacity: 0.04,
     shadowRadius: 5,
-    elevation: 1,
+    elevation: 2,
   },
 
   profileTop: {
     width: "100%",
-    minHeight: 65,
+    minHeight: 76,
     alignItems: "center",
     justifyContent: "center",
     position: "relative",
@@ -411,9 +411,9 @@ const styles = StyleSheet.create({
   },
 
   avatar: {
-    width: 49,
-    height: 49,
-    borderRadius: 25,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
     backgroundColor: "#CFF8E3",
     alignItems: "center",
     justifyContent: "center",
@@ -421,19 +421,19 @@ const styles = StyleSheet.create({
 
   avatarLetter: {
     fontFamily: "Geist_700Bold",
-    fontSize: 17,
+    fontSize: 23,
     color: COLORS.green,
   },
 
   editAvatar: {
     position: "absolute",
-    right: -1,
-    bottom: -1,
-    width: 17,
-    height: 17,
-    borderRadius: 9,
-    backgroundColor: "#00A866",
-    borderWidth: 1.5,
+    right: -2,
+    bottom: -2,
+    width: 23,
+    height: 23,
+    borderRadius: 12,
+    backgroundColor: COLORS.greenBright,
+    borderWidth: 2,
     borderColor: COLORS.white,
     alignItems: "center",
     justifyContent: "center",
@@ -441,87 +441,87 @@ const styles = StyleSheet.create({
 
   memberBadge: {
     position: "absolute",
-    top: -1,
+    top: 0,
     right: 0,
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#E7FFF4",
-    borderRadius: 10,
-    paddingHorizontal: 6,
-    paddingVertical: 4,
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
   },
 
   memberDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
     backgroundColor: "#12B981",
-    marginRight: 3,
+    marginRight: 5,
   },
 
   memberText: {
     fontFamily: "Geist_600SemiBold",
-    fontSize: 6.5,
+    fontSize: 9,
     color: "#079568",
   },
 
   userName: {
     fontFamily: "Geist_700Bold",
-    fontSize: 14,
+    fontSize: 20,
     color: "#101828",
-    marginTop: 5,
+    marginTop: 8,
   },
 
   userEmail: {
     fontFamily: "Geist_400Regular",
-    fontSize: 7.5,
+    fontSize: 13,
     color: "#64748B",
-    marginTop: 2,
+    marginTop: 4,
   },
 
   profileDivider: {
     width: "100%",
     height: 1,
     backgroundColor: "#F0F3F5",
-    marginTop: 10,
-    marginBottom: 8,
+    marginTop: 16,
+    marginBottom: 12,
   },
 
   profileFooter: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 5,
+    gap: 7,
   },
 
   profileDate: {
     fontFamily: "Geist_400Regular",
-    fontSize: 7.5,
+    fontSize: 12,
     color: "#64748B",
   },
 
   section: {
-    marginTop: 19,
+    marginTop: 22,
   },
 
   sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 8,
+    marginBottom: 10,
     paddingHorizontal: 2,
   },
 
   sectionTitle: {
     fontFamily: "Geist_600SemiBold",
-    fontSize: 8,
-    letterSpacing: 0.25,
+    fontSize: 12,
+    letterSpacing: 0.3,
     color: "#607087",
   },
 
   editText: {
     fontFamily: "Geist_600SemiBold",
-    fontSize: 8,
+    fontSize: 13,
     color: "#00A866",
   },
 
@@ -529,17 +529,17 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     flexWrap: "wrap",
-    gap: 6,
+    gap: 8,
   },
 
   intoleranceChip: {
-    minHeight: 27,
+    minHeight: 36,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 5,
-    paddingHorizontal: 10,
-    borderRadius: 16,
+    gap: 7,
+    paddingHorizontal: 12,
+    borderRadius: 20,
     backgroundColor: COLORS.white,
     borderWidth: 1,
     borderColor: "#EEF1F4",
@@ -547,14 +547,14 @@ const styles = StyleSheet.create({
 
   chipText: {
     fontFamily: "Geist_600SemiBold",
-    fontSize: 8,
+    fontSize: 13,
     color: "#344054",
   },
 
   addChip: {
-    width: 27,
-    height: 27,
-    borderRadius: 14,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: COLORS.white,
     borderWidth: 1,
     borderColor: "#E3EAE6",
@@ -566,39 +566,39 @@ const styles = StyleSheet.create({
     backgroundColor: "#EAF4EE",
     borderWidth: 1,
     borderColor: "#E0EDE4",
-    borderRadius: 15,
-    paddingHorizontal: 11,
-    paddingVertical: 12,
-    marginTop: 13,
+    borderRadius: 16,
+    paddingHorizontal: 15,
+    paddingVertical: 16,
+    marginTop: 18,
   },
 
   healthHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 9,
+    marginBottom: 12,
   },
 
   healthTitle: {
     fontFamily: "Geist_700Bold",
-    fontSize: 7.5,
+    fontSize: 12,
     color: COLORS.green,
     letterSpacing: 0.3,
   },
 
   healthDays: {
     fontFamily: "Geist_700Bold",
-    fontSize: 8,
+    fontSize: 13,
     color: COLORS.green,
   },
 
   progressBackground: {
     width: "100%",
-    height: 5,
+    height: 7,
     borderRadius: 5,
     backgroundColor: "#D5E2D9",
     overflow: "hidden",
-    marginBottom: 9,
+    marginBottom: 12,
   },
 
   progressFill: {
@@ -610,8 +610,8 @@ const styles = StyleSheet.create({
 
   healthDescription: {
     fontFamily: "Geist_400Regular",
-    fontSize: 7.5,
-    lineHeight: 11,
+    fontSize: 13,
+    lineHeight: 20,
     color: "#40594A",
   },
 
@@ -620,30 +620,30 @@ const styles = StyleSheet.create({
   },
 
   optionsSection: {
-    marginTop: 17,
+    marginTop: 22,
   },
 
   optionsCard: {
     backgroundColor: COLORS.white,
-    borderRadius: 15,
-    marginTop: 8,
-    paddingHorizontal: 9,
-    paddingVertical: 2,
+    borderRadius: 16,
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
     overflow: "hidden",
   },
 
   optionRow: {
-    minHeight: 43,
+    minHeight: 58,
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 6,
-    gap: 8,
+    paddingVertical: 10,
+    gap: 12,
   },
 
   optionIcon: {
-    width: 25,
-    height: 25,
-    borderRadius: 7,
+    width: 38,
+    height: 38,
+    borderRadius: 10,
     backgroundColor: "#F0F4F8",
     alignItems: "center",
     justifyContent: "center",
@@ -656,44 +656,49 @@ const styles = StyleSheet.create({
 
   optionTitle: {
     fontFamily: "Geist_600SemiBold",
-    fontSize: 8.5,
+    fontSize: 13,
     color: "#263449",
   },
 
   optionSubtitle: {
     fontFamily: "Geist_400Regular",
-    fontSize: 7,
+    fontSize: 11,
     color: "#94A3B8",
-    marginTop: 2,
+    marginTop: 3,
   },
 
   optionDivider: {
     height: 1,
     backgroundColor: "#F0F2F5",
-    marginLeft: 33,
+    marginLeft: 50,
   },
 
   logoutButton: {
-    minHeight: 34,
+    minHeight: 46,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
+    gap: 8,
     backgroundColor: COLORS.redLight,
     borderWidth: 1,
     borderColor: "#FDE2E2",
-    borderRadius: 10,
-    marginTop: 9,
+    borderRadius: 12,
+    marginTop: 16,
     paddingHorizontal: 12,
   },
 
   logoutText: {
     fontFamily: "Geist_600SemiBold",
-    fontSize: 8,
+    fontSize: 13,
     color: COLORS.red,
   },
 
   bottomSpace: {
-    height: 8,
+    height: 12,
+  },
+
+  tabBarContainer: {
+    width: "100%",
+    backgroundColor: COLORS.white,
   },
 });
