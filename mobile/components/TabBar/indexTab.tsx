@@ -32,6 +32,7 @@ export default function TabBar({ abaAtiva }: Props) {
       icon: "clock" as const,
       route: "../historico",
     },
+    
     {
       id: "itensCurtidos" as AbaId,
       label: "Curtidos",
