@@ -14,7 +14,7 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { Ionicons, Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import TabBar from "@/components/TabBar/indexTab";
+//import TabBar from "@/components/TabBar/indexTab";
 
 export default function ScannerScreen() {
   const { width, height } = useWindowDimensions();
@@ -22,7 +22,7 @@ export default function ScannerScreen() {
   const [permission, requestPermission] = useCameraPermissions();
 
   const [flashAtivo, setFlashAtivo] = useState(false);
-  const [menuAberto, setMenuAberto] = useState(false);
+  //const [menuAberto, setMenuAberto] = useState(false);
 
   // Responsividade
   const tamanhoMoldura = Math.min(width * 0.64, 230);
@@ -113,7 +113,7 @@ export default function ScannerScreen() {
                 color="#FFFFFF"
               />
               
-              
+
             </TouchableOpacity>
 
             {/* NOME */}
