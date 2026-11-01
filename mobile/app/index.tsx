@@ -9,7 +9,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useState } from "react";
 import {
-  Dimensions,
   ImageBackground,
   KeyboardAvoidingView,
   Platform,
@@ -22,8 +21,6 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-
-const { width } = Dimensions.get("window");
 
 export default function LoginScreen() {
   const [fontsLoaded] = useFonts({
@@ -87,6 +84,7 @@ export default function LoginScreen() {
                   keyboardType="email-address"
                   autoCapitalize="none"
                   autoCorrect={false}
+                  underlineColorAndroid="transparent"
                   style={styles.input}
                 />
               </View>
@@ -108,7 +106,8 @@ export default function LoginScreen() {
                   secureTextEntry={!mostrarSenha}
                   autoCapitalize="none"
                   autoCorrect={false}
-                  style={styles.input}
+                  underlineColorAndroid="transparent"
+                  style={[styles.input, { paddingRight: 35 }]}
                 />
                 <TouchableOpacity
                   onPress={() => setMostrarSenha(!mostrarSenha)}
@@ -172,7 +171,7 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 24,
+    paddingVertical: 20,
     paddingHorizontal: 16,
   },
 
@@ -180,7 +179,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 24,
+    marginBottom: 20,
   },
   logoRotu: {
     fontFamily: "Geist_700Bold",
@@ -195,9 +194,8 @@ const styles = StyleSheet.create({
     color: "#F8A018",
   },
 
-
   loginCard: {
-    width: "100%",
+    width: "91%",
     maxWidth: 380,
     backgroundColor: "#FFFFFF",
     borderRadius: 17,
@@ -232,7 +230,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
     marginBottom: 20,
   },
-  forgotText: {
+    forgotText: {
     fontFamily: "Geist_700Bold",
     fontSize: 13,
     color: "#008B5E",
@@ -244,11 +242,12 @@ const styles = StyleSheet.create({
     height: 46,
     borderWidth: 1,
     borderColor: "#E3E6EA",
-    borderRadius: 14,
+    borderRadius: 22,
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 12,
     backgroundColor: "#FFFFFF",
+    position: "relative",
   },
   inputIcon: {
     marginRight: 8,
@@ -263,16 +262,17 @@ const styles = StyleSheet.create({
     color: "#374151",
   },
   eyeButton: {
-    width: 32,
+    position: "absolute",
+    right: 12,
     height: "100%",
-    alignItems: "center",
     justifyContent: "center",
+    alignItems: "center",
   },
 
   loginButton: {
     width: "100%",
     height: 46,
-    borderRadius: 14,
+    borderRadius: 22,
     backgroundColor: "#24C95B",
     alignItems: "center",
     justifyContent: "center",
@@ -284,7 +284,6 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
   },
 
-  
   registerContainer: {
     flexDirection: "row",
     justifyContent: "center",
