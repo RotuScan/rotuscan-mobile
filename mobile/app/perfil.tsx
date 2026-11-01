@@ -7,10 +7,12 @@ import {
 import { useFonts } from "@expo-google-fonts/geist/useFonts";
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
+import * as ImagePicker from "expo-image-picker";
 import React, { useState, useCallback } from "react";
 import {
   ActivityIndicator,
-  Alert,
+  Image,
+  RefreshControl,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -24,7 +26,9 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import AppHeader from "../components/Header/AppHeader";
 import TabBar from "@/components/TabBar/indexTab";
-import api from "../services/api";
+import ConfirmModal from "../components/ConfirmModal";
+import api, { extrairMensagemErro } from "../services/api";
+import { useAuth, NiveisSensibilidade } from "../context/AuthContext";
 
 const COLORS = {
   background: "#F5F7FA",
@@ -47,12 +51,6 @@ type OptionProps = {
   onPress: () => void;
 };
 
-const MAPA_NOMES: Record<string, string> = {
-  gluten: "Glúten",
-  lactose: "Lactose",
-  amendoim: "Amendoim",
-};
-
 export default function PerfilScreen() {
   const [fontsLoaded] = useFonts({
     Geist_400Regular,
@@ -61,95 +59,160 @@ export default function PerfilScreen() {
     Geist_700Bold,
   });
 
-  const [drawerVisible, setDrawerVisible] = useState(false);
   const { width } = useWindowDimensions();
+  const {
+    usuarioAtual,
+    salvarSessaoUsuario,
+    atualizarAvatarContexto,
+    encerrarSessao,
+  } = useAuth();
 
   const cardWidth = Math.min(width - 32, 440);
 
-  const [nome, setNome] = useState("Endrew");
-  const [email, setEmail] = useState("endrew.bis...@email.com");
-  const [intolerancias, setIntolerancias] = useState<string[]>([
-    "Glúten",
-    "Lactose",
-  ]);
-  const [totalAnalises, setTotalAnalises] = useState(45);
-  const [totalSeguros, setTotalSeguros] = useState(45);
+  const [nome, setNome] = useState(usuarioAtual?.nome || "Usuário");
+  const [email, setEmail] = useState(usuarioAtual?.email || "");
+  const [avatar, setAvatar] = useState<string | null>(
+    usuarioAtual?.avatar || null
+  );
+  const [enviandoAvatar, setEnviandoAvatar] = useState(false);
+
+  const [diasConsecutivos, setDiasConsecutivos] = useState(0);
+  const [escaneamentosSegurosMes, setEscaneamentosSegurosMes] = useState(0);
+  const [totalScans, setTotalScans] = useState(0);
+  const [metaMensal, setMetaMensal] = useState(50);
+
+  const [refreshing, setRefreshing] = useState(false);
+  const [erroInline, setErroInline] = useState<string | null>(null);
+  const [sucessoInline, setSucessoInline] = useState<string | null>(null);
+  const [modalSairVisivel, setModalSairVisivel] = useState(false);
+
+  const carregarDadosPerfil = useCallback(
+    async (isRefresh = false) => {
+      if (isRefresh) setRefreshing(true);
+      setErroInline(null);
+
+      try {
+        const [nomeCache, emailCache, avatarCache] = await Promise.all([
+          AsyncStorage.getItem("@usuario_nome"),
+          AsyncStorage.getItem("@usuario_email"),
+          AsyncStorage.getItem("@usuario_avatar"),
+        ]);
+
+        if (nomeCache) setNome(nomeCache);
+        if (emailCache) setEmail(emailCache);
+        if (avatarCache) setAvatar(avatarCache);
+
+        const res = await api.get("/users/perfil");
+        const u = res.data?.usuario || res.data;
+        const st = res.data?.stats || {};
+
+        const restServidor = Array.isArray(u.restricoes)
+          ? u.restricoes.map((r: string) => r.toLowerCase())
+          : [];
+
+        const niveisServidor: NiveisSensibilidade = {
+          gluten: (u.niveisSensibilidade?.gluten ?? 1) as 0 | 1 | 2,
+          lactose: (u.niveisSensibilidade?.lactose ?? 1) as 0 | 1 | 2,
+          amendoim: (u.niveisSensibilidade?.amendoim ?? 1) as 0 | 1 | 2,
+        };
+
+        const avatarResolucao = u.avatar || avatarCache || null;
+
+        setNome(u.nome || "Usuário");
+        setEmail(u.email || "");
+        setAvatar(avatarResolucao);
+
+        setDiasConsecutivos(Number(st.diasConsecutivos || 0));
+        setEscaneamentosSegurosMes(Number(st.escaneamentosSegurosMes || 0));
+        setTotalScans(Number(st.totalScans || 0));
+        setMetaMensal(Number(st.metaMensal || 50));
+
+        await salvarSessaoUsuario(null, {
+          id: String(u.id || u._id),
+          nome: u.nome || "Usuário",
+          email: u.email || "",
+          avatar: avatarResolucao,
+          restricoes: restServidor,
+          niveisSensibilidade: niveisServidor,
+        });
+      } catch (error: any) {
+        setErroInline(extrairMensagemErro(error));
+      } finally {
+        setRefreshing(false);
+      }
+    },
+    [salvarSessaoUsuario]
+  );
 
   useFocusEffect(
     useCallback(() => {
-      const carregarDadosPerfil = async () => {
-        try {
-          const nomeSalvo = await AsyncStorage.getItem("@usuario_nome");
-          const emailSalvo = await AsyncStorage.getItem("@usuario_email");
-          if (nomeSalvo && nomeSalvo.trim()) setNome(nomeSalvo);
-          if (emailSalvo && emailSalvo.trim()) setEmail(emailSalvo);
-
-          const restricoesJson = await AsyncStorage.getItem("@usuario_restricoes");
-          if (restricoesJson) {
-            const parsed: string[] = JSON.parse(restricoesJson);
-            if (parsed.length > 0) {
-              setIntolerancias(
-                parsed.map((item) => MAPA_NOMES[item.toLowerCase()] || item)
-              );
-            }
-          }
-
-          const userId = await AsyncStorage.getItem("@usuario_id");
-          if (userId) {
-            const res = await api.get(`/users/historico/${userId}`).catch(() => null);
-            if (res?.data && Array.isArray(res.data) && res.data.length > 0) {
-              setTotalAnalises(res.data.length);
-              const seguros = res.data.filter(
-                (log: any) => log.veredito === "SEGURO"
-              ).length;
-              setTotalSeguros(seguros);
-            }
-          }
-        } catch (error) {
-          console.error("Erro ao carregar perfil:", error);
-        }
-      };
-
-      carregarDadosPerfil();
-    }, [])
+      carregarDadosPerfil(false);
+    }, [carregarDadosPerfil])
   );
+
+  /**
+   * Abre a galeria com expo-image-picker, converte para data:image/jpeg;base64,
+   * atualiza estado local + AsyncStorage + AuthContext imediatamente e grava
+   * via PUT /users/perfil no MongoDB (RotuScanDB.users).
+   */
+  const selecionarFotoAvatar = async () => {
+    if (enviandoAvatar) return;
+    setErroInline(null);
+    setSucessoInline(null);
+
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
+        setErroInline(
+          "Permissão de acesso à galeria negada. Habilite nas configurações do aparelho."
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.4,
+        base64: true,
+      });
+
+      if (result.canceled || !result.assets?.length) {
+        return;
+      }
+
+      const asset = result.assets[0];
+      if (!asset.base64) {
+        setErroInline("Não foi possível processar a imagem selecionada.");
+        return;
+      }
+
+      const avatarBase64 = "data:image/jpeg;base64," + asset.base64;
+
+      // Atualiza imediatamente na UI e no AsyncStorage
+      setAvatar(avatarBase64);
+      await atualizarAvatarContexto(avatarBase64);
+
+      setEnviandoAvatar(true);
+      await api.put("/users/perfil", { avatar: avatarBase64 });
+
+      setSucessoInline("Foto de perfil salva com sucesso!");
+      setTimeout(() => setSucessoInline(null), 3500);
+    } catch (err: any) {
+      setErroInline(extrairMensagemErro(err));
+    } finally {
+      setEnviandoAvatar(false);
+    }
+  };
 
   function abrirRota(path: string) {
     router.push(path as never);
   }
 
-  function sairDaConta() {
-    Alert.alert(
-      "Sair da conta",
-      "Deseja realmente sair da sua conta?",
-      [
-        {
-          text: "Cancelar",
-          style: "cancel",
-        },
-        {
-          text: "Sair",
-          style: "destructive",
-          onPress: async () => {
-            await AsyncStorage.multiRemove([
-              "@rotuscan_token",
-              "@usuario_id",
-              "@usuario_nome",
-              "@usuario_email",
-              "@usuario_restricoes",
-              "@restricao_gluten",
-              "@restricao_lactose",
-              "@restricao_amendoim",
-            ]);
-            router.replace("/" as never);
-          },
-        },
-      ]
-    );
-  }
-
-  function handleMenuPress() {
-    setDrawerVisible(true);
+  async function confirmarSaida() {
+    setModalSairVisivel(false);
+    await encerrarSessao();
+    router.replace("/login" as never);
   }
 
   if (!fontsLoaded) {
@@ -160,47 +223,77 @@ export default function PerfilScreen() {
     );
   }
 
-  const inicialAvatar = nome.trim() ? nome.trim().charAt(0).toUpperCase() : "E";
+  const porcentagemMeta = Math.min(
+    100,
+    Math.round((escaneamentosSegurosMes / Math.max(1, metaMensal)) * 100)
+  );
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
-      <StatusBar
-        barStyle="dark-content"
-      />
+      <StatusBar barStyle="dark-content" />
 
       <View style={styles.headerContainer}>
-        <AppHeader onMenuPress={handleMenuPress} />
+        <AppHeader />
       </View>
 
       <ScrollView
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[
-          styles.scrollContent,
-          { width: cardWidth },
-        ]}
+        contentContainerStyle={[styles.scrollContent, { width: cardWidth }]}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => carregarDadosPerfil(true)}
+            colors={[COLORS.green]}
+            tintColor={COLORS.green}
+          />
+        }
       >
-        {/* Cartão do perfil */}
+        {erroInline ? (
+          <View style={styles.erroBanner}>
+            <Ionicons name="alert-circle" size={16} color="#DC2626" />
+            <Text style={styles.erroBannerText}>{erroInline}</Text>
+          </View>
+        ) : null}
+
+        {sucessoInline ? (
+          <View style={styles.sucessoBanner}>
+            <Ionicons name="checkmark-circle" size={16} color="#15803D" />
+            <Text style={styles.sucessoBannerText}>{sucessoInline}</Text>
+          </View>
+        ) : null}
+
+        {/* Cartão Principal do Usuário */}
         <View style={styles.profileCard}>
           <View style={styles.profileTop}>
-            <View style={styles.avatarContainer}>
-              <View style={styles.avatar}>
-                <Text style={styles.avatarLetter}>{inicialAvatar}</Text>
-              </View>
+            <TouchableOpacity
+              style={styles.avatarContainer}
+              onPress={selecionarFotoAvatar}
+              activeOpacity={0.85}
+              disabled={enviandoAvatar}
+              accessibilityRole="button"
+              accessibilityLabel="Alterar foto de perfil"
+            >
+              <Image
+                source={
+                  avatar
+                    ? { uri: avatar }
+                    : require("../assets/images/user.png")
+                }
+                style={styles.avatarImage}
+                resizeMode="cover"
+              />
 
-              <TouchableOpacity
-                style={styles.editAvatar}
-                onPress={() => abrirRota("/editar-perfil")}
-                activeOpacity={0.8}
-                accessibilityLabel="Editar perfil"
-              >
-                <Feather
-                  name="edit-2"
-                  size={11}
-                  color={COLORS.white}
-                />
-              </TouchableOpacity>
-            </View>
+              {enviandoAvatar ? (
+                <View style={styles.avatarLoadingOverlay}>
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                </View>
+              ) : null}
+
+              <View style={styles.editAvatar}>
+                <Feather name="edit-2" size={11} color={COLORS.white} />
+              </View>
+            </TouchableOpacity>
 
             <View style={styles.memberBadge}>
               <View style={styles.memberDot} />
@@ -208,110 +301,63 @@ export default function PerfilScreen() {
             </View>
           </View>
 
-          <Text style={styles.userName}>{nome}</Text>
-
-          <Text style={styles.userEmail}>
-            {email}
-          </Text>
+          <Text style={styles.userName}>Olá, {nome}</Text>
+          <Text style={styles.userEmail}>{email}</Text>
 
           <View style={styles.profileDivider} />
 
           <View style={styles.profileFooter}>
-            <Feather
-              name="shield"
-              size={13}
-              color={COLORS.green}
-            />
+            <Feather name="shield" size={13} color={COLORS.green} />
             <Text style={styles.profileDate}>
               Sua saúde em primeiro lugar
             </Text>
           </View>
         </View>
 
-        {/* Intolerâncias */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>
-              SUAS INTOLERÂNCIAS ATIVAS
-            </Text>
-
-            <TouchableOpacity
-              onPress={() => abrirRota("/selectIntolerancia")}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.editText}>Editar</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.chipsContainer}>
-            {intolerancias.map((item) => (
-              <View key={item} style={styles.intoleranceChip}>
-                <Ionicons
-                  name={
-                    item === "Glúten"
-                      ? "nutrition-outline"
-                      : item === "Lactose"
-                      ? "water-outline"
-                      : "alert-circle-outline"
-                  }
-                  size={15}
-                  color="#596A78"
-                />
-
-                <Text style={styles.chipText}>{item}</Text>
-              </View>
-            ))}
-
-            <TouchableOpacity
-              style={styles.addChip}
-              activeOpacity={0.7}
-              onPress={() => abrirRota("/selectIntolerancia")}
-              accessibilityLabel="Adicionar intolerância"
-            >
-              <Feather
-                name="plus"
-                size={18}
-                color={COLORS.green}
-              />
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Progresso de saúde */}
+        {/* Progresso de Saúde */}
         <View style={styles.healthCard}>
           <View style={styles.healthHeader}>
-            <Text style={styles.healthTitle}>
-              PROGRESSO DE SAÚDE
+            <Text style={styles.healthTitle}>PROGRESSO DE SAÚDE</Text>
+            <Text style={styles.healthDays}>
+              {diasConsecutivos} {diasConsecutivos === 1 ? "Dia" : "Dias"}
             </Text>
-
-            <Text style={styles.healthDays}>12 dias</Text>
           </View>
 
           <View style={styles.progressBackground}>
-            <View style={styles.progressFill} />
+            <View
+              style={[
+                styles.progressFill,
+                { width: `${porcentagemMeta}%` },
+              ]}
+            />
           </View>
 
-          <Text style={styles.healthDescription}>
-            Você realizou{" "}
-            <Text style={styles.healthBold}>
-              {totalSeguros} escaneamentos seguros
-            </Text>{" "}
-            este mês. Continue assim!
-          </Text>
+          {escaneamentosSegurosMes > 0 ? (
+            <Text style={styles.healthDescription}>
+              Você realizou{" "}
+              <Text style={styles.healthBold}>
+                {escaneamentosSegurosMes} escaneamentos seguros
+              </Text>{" "}
+              este mês. Continue assim!
+            </Text>
+          ) : (
+            <Text style={styles.healthDescription}>
+              Você ainda não realizou escaneamentos seguros este mês. Faça seu
+              primeiro scan para acompanhar sua meta!
+            </Text>
+          )}
         </View>
 
-        {/* Opções da conta */}
+        {/* Opções da Conta */}
         <View style={styles.optionsSection}>
-          <Text style={styles.sectionTitle}>
-            OPÇÕES DA CONTA
-          </Text>
+          <Text style={styles.sectionTitle}>OPÇÕES DA CONTA</Text>
 
           <View style={styles.optionsCard}>
             <Option
               icon="user"
               title="Dados pessoais e metas"
               subtitle="Editar nome, e-mail e senha"
-              onPress={() => abrirRota("/editar-perfil")}
+              onPress={() => abrirRota("/dados-pessoais")}
             />
 
             <View style={styles.optionDivider} />
@@ -319,7 +365,7 @@ export default function PerfilScreen() {
             <Option
               icon="clock"
               title="Histórico de análises"
-              subtitle={`${totalAnalises} produtos analisados`}
+              subtitle={`${totalScans} produtos analisados`}
               onPress={() => abrirRota("/historico")}
             />
 
@@ -328,7 +374,8 @@ export default function PerfilScreen() {
             <Option
               icon="bell"
               title="Alertas de contaminação"
-              onPress={() => abrirRota("/selectIntolerancia")}
+              subtitle="Configurar intolerâncias e sensibilidade"
+              onPress={() => abrirRota("/alertas")}
             />
 
             <View style={styles.optionDivider} />
@@ -336,6 +383,16 @@ export default function PerfilScreen() {
             <Option
               icon="help-circle"
               title="Ajuda e perguntas frequentes"
+              subtitle="Dúvidas sobre leitura de rótulos e suporte"
+              onPress={() => abrirRota("/ajuda")}
+            />
+
+            <View style={styles.optionDivider} />
+
+            <Option
+              icon="settings"
+              title="Definições"
+              subtitle="Preferências do aplicativo e conta"
               onPress={() => abrirRota("/configuracoes")}
             />
           </View>
@@ -345,34 +402,34 @@ export default function PerfilScreen() {
         <TouchableOpacity
           style={styles.logoutButton}
           activeOpacity={0.75}
-          onPress={sairDaConta}
+          onPress={() => setModalSairVisivel(true)}
         >
-          <Feather
-            name="log-out"
-            size={16}
-            color={COLORS.red}
-          />
-
+          <Feather name="log-out" size={16} color={COLORS.red} />
           <Text style={styles.logoutText}>Sair da conta</Text>
         </TouchableOpacity>
 
         <View style={styles.bottomSpace} />
       </ScrollView>
 
-      {/* Navegação inferior */}
       <View style={styles.tabBarContainer}>
         <TabBar abaAtiva="perfil" />
       </View>
+
+      <ConfirmModal
+        visible={modalSairVisivel}
+        title="Sair da conta"
+        message="Deseja realmente sair da sua conta?"
+        confirmText="Sair"
+        cancelText="Cancelar"
+        destructive
+        onConfirm={confirmarSaida}
+        onCancel={() => setModalSairVisivel(false)}
+      />
     </SafeAreaView>
   );
 }
 
-function Option({
-  icon,
-  title,
-  subtitle,
-  onPress,
-}: OptionProps) {
+function Option({ icon, title, subtitle, onPress }: OptionProps) {
   return (
     <TouchableOpacity
       style={styles.optionRow}
@@ -380,28 +437,18 @@ function Option({
       onPress={onPress}
     >
       <View style={styles.optionIcon}>
-        <Feather
-          name={icon}
-          size={18}
-          color="#718092"
-        />
+        <Feather name={icon} size={18} color="#718092" />
       </View>
 
       <View style={styles.optionContent}>
         <Text style={styles.optionTitle}>{title}</Text>
 
         {subtitle ? (
-          <Text style={styles.optionSubtitle}>
-            {subtitle}
-          </Text>
+          <Text style={styles.optionSubtitle}>{subtitle}</Text>
         ) : null}
       </View>
 
-      <Feather
-        name="chevron-right"
-        size={18}
-        color="#91A3BA"
-      />
+      <Feather name="chevron-right" size={18} color="#91A3BA" />
     </TouchableOpacity>
   );
 }
@@ -411,30 +458,61 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
   },
-
   loading: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: COLORS.background,
   },
-
   headerContainer: {
     width: "100%",
     alignSelf: "center",
   },
-
   scrollView: {
     flex: 1,
     width: "100%",
   },
-
   scrollContent: {
-    paddingTop: 8,
+    paddingTop: 12,
     paddingBottom: 16,
     alignSelf: "center",
   },
-
+  erroBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 10,
+  },
+  erroBannerText: {
+    flex: 1,
+    fontFamily: "Geist_500Medium",
+    fontSize: 12,
+    color: "#DC2626",
+  },
+  sucessoBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#DCFCE7",
+    borderWidth: 1,
+    borderColor: "#BBF7D0",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 10,
+  },
+  sucessoBannerText: {
+    flex: 1,
+    fontFamily: "Geist_600SemiBold",
+    fontSize: 12,
+    color: "#15803D",
+  },
   profileCard: {
     backgroundColor: COLORS.white,
     borderRadius: 16,
@@ -443,15 +521,11 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
     alignItems: "center",
     shadowColor: "#223344",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.04,
     shadowRadius: 5,
     elevation: 2,
   },
-
   profileTop: {
     width: "100%",
     minHeight: 76,
@@ -459,34 +533,30 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     position: "relative",
   },
-
   avatarContainer: {
     alignItems: "center",
     justifyContent: "center",
     position: "relative",
   },
-
-  avatar: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
+  avatarImage: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     backgroundColor: "#CFF8E3",
+  },
+  avatarLoadingOverlay: {
+    ...StyleSheet.absoluteFill,
+    borderRadius: 36,
+    backgroundColor: "rgba(0,0,0,0.45)",
     alignItems: "center",
     justifyContent: "center",
   },
-
-  avatarLetter: {
-    fontFamily: "Geist_700Bold",
-    fontSize: 23,
-    color: COLORS.green,
-  },
-
   editAvatar: {
     position: "absolute",
     right: -2,
     bottom: -2,
-    width: 23,
-    height: 23,
+    width: 24,
+    height: 24,
     borderRadius: 12,
     backgroundColor: COLORS.greenBright,
     borderWidth: 2,
@@ -494,7 +564,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   memberBadge: {
     position: "absolute",
     top: 0,
@@ -506,7 +575,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 5,
   },
-
   memberDot: {
     width: 6,
     height: 6,
@@ -514,27 +582,23 @@ const styles = StyleSheet.create({
     backgroundColor: "#12B981",
     marginRight: 5,
   },
-
   memberText: {
     fontFamily: "Geist_600SemiBold",
     fontSize: 9,
     color: "#079568",
   },
-
   userName: {
     fontFamily: "Geist_700Bold",
     fontSize: 20,
     color: "#101828",
     marginTop: 8,
   },
-
   userEmail: {
     fontFamily: "Geist_400Regular",
     fontSize: 13,
     color: "#64748B",
     marginTop: 4,
   },
-
   profileDivider: {
     width: "100%",
     height: 1,
@@ -542,219 +606,140 @@ const styles = StyleSheet.create({
     marginTop: 16,
     marginBottom: 12,
   },
-
   profileFooter: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 7,
   },
-
   profileDate: {
     fontFamily: "Geist_400Regular",
     fontSize: 12,
     color: "#64748B",
   },
-
-  section: {
-    marginTop: 22,
+  healthCard: {
+    marginTop: 18,
+    backgroundColor: "#EAF4EE",
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: "#E0ECE4",
   },
-
-  sectionHeader: {
+  healthHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 10,
-    paddingHorizontal: 2,
   },
-
+  healthTitle: {
+    fontFamily: "Geist_700Bold",
+    fontSize: 10.5,
+    color: COLORS.green,
+    letterSpacing: 0.4,
+  },
+  healthDays: {
+    fontFamily: "Geist_700Bold",
+    fontSize: 14,
+    color: COLORS.green,
+  },
+  progressBackground: {
+    width: "100%",
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: "#DBE6E0",
+    overflow: "hidden",
+    marginBottom: 10,
+  },
+  progressFill: {
+    height: "100%",
+    borderRadius: 999,
+    backgroundColor: "#178C4A",
+  },
+  healthDescription: {
+    fontFamily: "Geist_400Regular",
+    fontSize: 11.5,
+    lineHeight: 16,
+    color: "#556476",
+  },
+  healthBold: {
+    fontFamily: "Geist_700Bold",
+    color: "#1F2937",
+  },
+  optionsSection: {
+    marginTop: 22,
+  },
   sectionTitle: {
     fontFamily: "Geist_600SemiBold",
     fontSize: 12,
     letterSpacing: 0.3,
     color: "#607087",
   },
-
-  editText: {
-    fontFamily: "Geist_600SemiBold",
-    fontSize: 13,
-    color: "#00A866",
-  },
-
-  chipsContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-
-  intoleranceChip: {
-    minHeight: 36,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 7,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-    backgroundColor: COLORS.white,
-    borderWidth: 1,
-    borderColor: "#EEF1F4",
-  },
-
-  chipText: {
-    fontFamily: "Geist_600SemiBold",
-    fontSize: 13,
-    color: "#344054",
-  },
-
-  addChip: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: COLORS.white,
-    borderWidth: 1,
-    borderColor: "#E3EAE6",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  healthCard: {
-    backgroundColor: "#EAF4EE",
-    borderWidth: 1,
-    borderColor: "#E0EDE4",
-    borderRadius: 16,
-    paddingHorizontal: 15,
-    paddingVertical: 16,
-    marginTop: 18,
-  },
-
-  healthHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 12,
-  },
-
-  healthTitle: {
-    fontFamily: "Geist_700Bold",
-    fontSize: 12,
-    color: COLORS.green,
-    letterSpacing: 0.3,
-  },
-
-  healthDays: {
-    fontFamily: "Geist_700Bold",
-    fontSize: 13,
-    color: COLORS.green,
-  },
-
-  progressBackground: {
-    width: "100%",
-    height: 7,
-    borderRadius: 5,
-    backgroundColor: "#D5E2D9",
-    overflow: "hidden",
-    marginBottom: 12,
-  },
-
-  progressFill: {
-    width: "75%",
-    height: "100%",
-    borderRadius: 5,
-    backgroundColor: "#176B43",
-  },
-
-  healthDescription: {
-    fontFamily: "Geist_400Regular",
-    fontSize: 13,
-    lineHeight: 20,
-    color: "#40594A",
-  },
-
-  healthBold: {
-    fontFamily: "Geist_700Bold",
-  },
-
-  optionsSection: {
-    marginTop: 22,
-  },
-
   optionsCard: {
-    backgroundColor: COLORS.white,
-    borderRadius: 16,
     marginTop: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
+    backgroundColor: COLORS.white,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: COLORS.border,
     overflow: "hidden",
   },
-
   optionRow: {
-    minHeight: 58,
+    minHeight: 56,
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 10,
-    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
-
   optionIcon: {
-    width: 38,
-    height: 38,
+    width: 34,
+    height: 34,
     borderRadius: 10,
-    backgroundColor: "#F0F4F8",
+    backgroundColor: COLORS.muted,
     alignItems: "center",
     justifyContent: "center",
+    marginRight: 12,
   },
-
   optionContent: {
     flex: 1,
-    justifyContent: "center",
   },
-
   optionTitle: {
     fontFamily: "Geist_600SemiBold",
-    fontSize: 13,
-    color: "#263449",
+    fontSize: 13.5,
+    color: "#1F2933",
   },
-
   optionSubtitle: {
     fontFamily: "Geist_400Regular",
-    fontSize: 11,
+    fontSize: 11.5,
     color: "#94A3B8",
-    marginTop: 3,
+    marginTop: 2,
   },
-
   optionDivider: {
     height: 1,
-    backgroundColor: "#F0F2F5",
-    marginLeft: 50,
+    backgroundColor: "#EEF2F5",
+    marginLeft: 60,
   },
-
   logoutButton: {
+    marginTop: 16,
     minHeight: 46,
+    borderRadius: 14,
+    backgroundColor: COLORS.redLight,
+    borderWidth: 1,
+    borderColor: "#FED7D7",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    backgroundColor: COLORS.redLight,
-    borderWidth: 1,
-    borderColor: "#FDE2E2",
-    borderRadius: 12,
-    marginTop: 16,
-    paddingHorizontal: 12,
   },
-
   logoutText: {
     fontFamily: "Geist_600SemiBold",
     fontSize: 13,
     color: COLORS.red,
   },
-
   bottomSpace: {
-    height: 12,
+    height: 22,
   },
-
   tabBarContainer: {
     width: "100%",
-    backgroundColor: COLORS.white,
+    alignSelf: "center",
   },
 });

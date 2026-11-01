@@ -1,6 +1,9 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Image,
+  ActivityIndicator,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  RefreshControl,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -10,119 +13,144 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Feather, Ionicons } from "@expo/vector-icons";
+import { Feather, Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { router, useFocusEffect } from "expo-router";
 
 import TabBar from "../components/TabBar/indexTab";
 import AppHeader from "../components/Header/AppHeader";
+import ScanThumb from "../components/ScanThumb";
+import api, { extrairMensagemErro } from "../services/api";
+import { formatarGrupoData, formatarHorario } from "../utils/datas";
 
 type StatusProduto = "Seguro" | "Risco";
 type Filtro = "Todos" | StatusProduto;
 
-type Escaneamento = {
+type ItemHistorico = {
   id: string;
-  nome: string;
-  horario: string;
-  dataGrupo: string;
-  status: StatusProduto;
-  imagem: string;
+  nomeProduto: string;
+  veredito: "SEGURO" | "PERIGOSO";
+  alergicosDetectados?: {
+    categoria: string;
+    tipo: "CONTEM" | "TRACOS";
+    termos?: string[];
+  }[];
+  curtido: boolean;
+  imagemUrl: string | null;
+  imagemDemo: string | null;
+  createdAt: string;
 };
 
-const ESCANEAMENTOS: Escaneamento[] = [
-  {
-    id: "1",
-    nome: "Leite Integral",
-    horario: "19:36",
-    dataGrupo: "Hoje",
-    status: "Seguro",
-    imagem:
-      "https://images.unsplash.com/photo-1550583724-b2692b85b150?w=200",
-  },
-  {
-    id: "2",
-    nome: "Cebolitinhos",
-    horario: "19:32",
-    dataGrupo: "Hoje",
-    status: "Risco",
-    imagem:
-      "https://images.unsplash.com/photo-1566478989037-eec170784d0b?w=200",
-  },
-  {
-    id: "3",
-    nome: "Sorvetinho",
-    horario: "19:27",
-    dataGrupo: "Hoje",
-    status: "Seguro",
-    imagem:
-      "https://images.unsplash.com/photo-1563805042-7684c019e1cb?w=200",
-  },
-  {
-    id: "4",
-    nome: "Cervejinha",
-    horario: "16:48",
-    dataGrupo: "Ontem",
-    status: "Seguro",
-    imagem:
-      "https://images.unsplash.com/photo-1608270586620-248524c67de9?w=200",
-  },
-  {
-    id: "5",
-    nome: "Chocolatinho",
-    horario: "16:52",
-    dataGrupo: "Ontem",
-    status: "Seguro",
-    imagem:
-      "https://images.unsplash.com/photo-1548907040-4d42a0b3a1f2?w=200",
-  },
-  {
-    id: "6",
-    nome: "Biscoitinhos",
-    horario: "14:20",
-    dataGrupo: "06 de Set, 2026",
-    status: "Risco",
-    imagem:
-      "https://images.unsplash.com/photo-1499636136210-6f4ee915583e?w=200",
-  },
-];
+const LIMITE_PAGINA = 20;
 
 export default function Historico() {
   const [busca, setBusca] = useState("");
+  const [buscaDebounced, setBuscaDebounced] = useState("");
   const [filtro, setFiltro] = useState<Filtro>("Todos");
-  const [drawerVisible, setDrawerVisible] = useState(false);
 
-  // Filtra os produtos pelo nome e pelo status.
-  const registrosFiltrados = useMemo(() => {
-    const termo = busca.trim().toLowerCase();
+  const [itens, setItens] = useState<ItemHistorico[]>([]);
+  const [pagina, setPagina] = useState(1);
+  const [temMais, setTemMais] = useState(false);
 
-    return ESCANEAMENTOS.filter((item) => {
-      const nomeCorresponde = item.nome
-        .toLowerCase()
-        .includes(termo);
+  const [carregando, setCarregando] = useState(true);
+  const [carregandoMais, setCarregandoMais] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [erroInline, setErroInline] = useState<string | null>(null);
 
-      const statusCorresponde =
-        filtro === "Todos" || item.status === filtro;
+  const focoInicialRef = useRef(false);
 
-      return nomeCorresponde && statusCorresponde;
-    });
-  }, [busca, filtro]);
+  // Debounce de 400 ms na busca
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setBuscaDebounced(busca.trim());
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [busca]);
 
-  // Agrupa os registros por data.
+  const buscarHistorico = useCallback(
+    async (paginaAlvo: number, substituir: boolean, isRefresh = false) => {
+      if (isRefresh) {
+        setRefreshing(true);
+      } else if (substituir) {
+        setCarregando(true);
+      } else {
+        setCarregandoMais(true);
+      }
+
+      setErroInline(null);
+
+      try {
+        const res = await api.get("/users/historico", {
+          params: {
+            filtro,
+            busca: buscaDebounced,
+            page: paginaAlvo,
+            limit: LIMITE_PAGINA,
+          },
+        });
+
+        const novosItens: ItemHistorico[] = Array.isArray(res.data?.itens)
+          ? res.data.itens
+          : [];
+
+        setItens((atuais) =>
+          substituir ? novosItens : [...atuais, ...novosItens]
+        );
+        setPagina(paginaAlvo);
+        setTemMais(Boolean(res.data?.temMais));
+      } catch (err: any) {
+        setErroInline(extrairMensagemErro(err));
+      } finally {
+        setCarregando(false);
+        setCarregandoMais(false);
+        setRefreshing(false);
+      }
+    },
+    [filtro, buscaDebounced]
+  );
+
+  // Recarrega quando filtro ou buscaDebounced mudam
+  useEffect(() => {
+    buscarHistorico(1, true, false);
+  }, [buscarHistorico]);
+
+  // Recarrega ao ganhar foco
+  useFocusEffect(
+    useCallback(() => {
+      if (focoInicialRef.current) {
+        buscarHistorico(1, true, false);
+      } else {
+        focoInicialRef.current = true;
+      }
+    }, [buscarHistorico])
+  );
+
+  const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    if (carregando || carregandoMais || !temMais) return;
+    const { layoutMeasurement, contentOffset, contentSize } = e.nativeEvent;
+    const distanciaDoFim =
+      contentSize.height - (layoutMeasurement.height + contentOffset.y);
+
+    if (distanciaDoFim < 160) {
+      buscarHistorico(pagina + 1, false, false);
+    }
+  };
+
+  // Agrupa os registros por data ("Hoje", "Ontem", "06 de Set, 2026")
   const grupos = useMemo(() => {
     const resultado: {
       titulo: string;
-      itens: Escaneamento[];
+      itens: ItemHistorico[];
     }[] = [];
 
-    registrosFiltrados.forEach((item) => {
-      let grupo = resultado.find(
-        (g) => g.titulo === item.dataGrupo
-      );
+    itens.forEach((item) => {
+      const tituloData = formatarGrupoData(item.createdAt);
+      let grupo = resultado.find((g) => g.titulo === tituloData);
 
       if (!grupo) {
         grupo = {
-          titulo: item.dataGrupo,
+          titulo: tituloData,
           itens: [],
         };
-
         resultado.push(grupo);
       }
 
@@ -130,37 +158,50 @@ export default function Historico() {
     });
 
     return resultado;
-  }, [registrosFiltrados]);
+  }, [itens]);
+
+  const abrirDetalhe = (id: string) => {
+    router.push({
+      pathname: "/resultado" as any,
+      params: { id },
+    });
+  };
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
-      <StatusBar
-        barStyle="dark-content"
-      />
+      <StatusBar barStyle="dark-content" />
 
-      <AppHeader onMenuPress={() => setDrawerVisible(true)} />
+      <AppHeader />
 
       {/* Conteúdo do histórico */}
       <ScrollView
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.conteudo}
-      >
-        <Text style={styles.titleHistorico}>
-          Histórico
-        </Text>
-
-        <Text style={styles.subtitle}>
-          Seus últimos escaneamentos
-        </Text>
-
-        {/* Pesquisa */}
-        <View style={styles.search}>
-          <Feather
-            name="search"
-            size={18}
-            color="#728078"
+        onScroll={handleScroll}
+        scrollEventThrottle={200}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => buscarHistorico(1, true, true)}
+            colors={["#00783F"]}
+            tintColor="#00783F"
           />
+        }
+      >
+        <Text style={styles.titleHistorico}>Histórico</Text>
+        <Text style={styles.subtitle}>Seus últimos escaneamentos</Text>
+
+        {erroInline ? (
+          <View style={styles.erroBanner}>
+            <Ionicons name="alert-circle" size={16} color="#DC2626" />
+            <Text style={styles.erroBannerText}>{erroInline}</Text>
+          </View>
+        ) : null}
+
+        {/* Pesquisa com debounce de 400ms no servidor */}
+        <View style={styles.search}>
+          <Feather name="search" size={18} color="#728078" />
 
           <TextInput
             value={busca}
@@ -176,155 +217,175 @@ export default function Historico() {
               onPress={() => setBusca("")}
               accessibilityLabel="Limpar pesquisa"
             >
-              <Ionicons
-                name="close-circle"
-                size={18}
-                color="#78847D"
-              />
+              <Ionicons name="close-circle" size={18} color="#78847D" />
             </TouchableOpacity>
           )}
         </View>
 
-        {/* Filtros */}
+        {/* Pílulas de Filtro */}
         <View style={styles.filtros}>
-          {(["Todos", "Risco", "Seguro"] as Filtro[]).map(
-            (opcao) => {
-              const ativo = filtro === opcao;
+          {(["Todos", "Risco", "Seguro"] as Filtro[]).map((opcao) => {
+            const ativo = filtro === opcao;
 
-              return (
-                <TouchableOpacity
-                  key={opcao}
-                  activeOpacity={0.7}
-                  onPress={() => setFiltro(opcao)}
+            return (
+              <TouchableOpacity
+                key={opcao}
+                activeOpacity={0.7}
+                onPress={() => setFiltro(opcao)}
+                style={[styles.filtro, ativo && styles.filtroAtivo]}
+              >
+                {opcao !== "Todos" && (
+                  <View
+                    style={[
+                      styles.bolinhaFiltro,
+                      {
+                        backgroundColor:
+                          opcao === "Risco" ? "#BF2922" : "#00783F",
+                      },
+                    ]}
+                  />
+                )}
+
+                <Text
                   style={[
-                    styles.filtro,
-                    ativo && styles.filtroAtivo,
+                    styles.textoFiltro,
+                    ativo && styles.textoFiltroAtivo,
                   ]}
                 >
-                  {opcao !== "Todos" && (
-                    <View
-                      style={[
-                        styles.bolinhaFiltro,
-                        {
-                          backgroundColor:
-                            opcao === "Risco"
-                              ? "#BF2922"
-                              : "#00783F",
-                        },
-                      ]}
-                    />
-                  )}
-
-                  <Text
-                    style={[
-                      styles.textoFiltro,
-                      ativo && styles.textoFiltroAtivo,
-                    ]}
-                  >
-                    {opcao}
-                  </Text>
-                </TouchableOpacity>
-              );
-            }
-          )}
+                  {opcao}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
 
         {/* Linha do tempo */}
-        {grupos.length > 0 ? (
-          grupos.map((grupo) => (
-            <View key={grupo.titulo} style={styles.grupo}>
-              <Text style={styles.dataGrupo}>
-                {grupo.titulo}
-              </Text>
+        {carregando && itens.length === 0 ? (
+          <View style={styles.loadingArea}>
+            <ActivityIndicator size="large" color="#00783F" />
+          </View>
+        ) : grupos.length > 0 ? (
+          <>
+            {grupos.map((grupo) => (
+              <View key={grupo.titulo} style={styles.grupo}>
+                <Text style={styles.dataGrupo}>{grupo.titulo}</Text>
 
-              {grupo.itens.map((item, indice) => {
-                const seguro = item.status === "Seguro";
-                const cor = seguro ? "#00783F" : "#BF2922";
-                const ultimo = indice === grupo.itens.length - 1;
+                {grupo.itens.map((item, indice) => {
+                  const seguro = item.veredito === "SEGURO";
+                  const cor = seguro ? "#00783F" : "#BF2922";
+                  const primeiro = indice === 0;
+                  const ultimo = indice === grupo.itens.length - 1;
+                  const catPrincipal =
+                    item.alergicosDetectados?.[0]?.categoria || null;
 
-                return (
-                  <View
-                    key={item.id}
-                    style={styles.itemTimeline}
-                  >
-                    {/* Coluna da linha e bolinha */}
-                    <View style={styles.trilho}>
-                      {!ultimo && (
-                        <View
-                          style={[
-                            styles.linha,
-                            { backgroundColor: cor },
-                          ]}
-                        />
-                      )}
-
-                      <View
-                        style={[
-                          styles.marcador,
-                          { backgroundColor: cor },
-                        ]}
-                      />
-                    </View>
-
-                    {/* Card do produto */}
-                    <View style={styles.card}>
-                      <Image
-                        source={{ uri: item.imagem }}
-                        style={styles.imagem}
-                        resizeMode="contain"
-                      />
-
-                      <View style={styles.informacoes}>
-                        <Text
-                          style={styles.nome}
-                          numberOfLines={2}
-                        >
-                          {item.nome}
-                        </Text>
-
-                        <View style={styles.status}>
+                  return (
+                    <View key={item.id} style={styles.itemTimeline}>
+                      {/* Coluna da linha e bolinha */}
+                      <View style={styles.trilho}>
+                        {grupo.itens.length > 1 && (
                           <View
                             style={[
-                              styles.bolinhaStatus,
+                              styles.linha,
                               { backgroundColor: cor },
+                              primeiro
+                                ? styles.linhaPrimeiro
+                                : ultimo
+                                ? styles.linhaUltimo
+                                : styles.linhaIntermediario,
                             ]}
                           />
+                        )}
 
-                          <Text
-                            style={[
-                              styles.textoStatus,
-                              { color: cor },
-                            ]}
-                          >
-                            {item.status}
+                        <View
+                          style={[styles.marcador, { backgroundColor: cor }]}
+                        />
+                      </View>
+
+                      {/* Card do produto clicável */}
+                      <TouchableOpacity
+                        style={styles.card}
+                        activeOpacity={0.8}
+                        onPress={() => abrirDetalhe(item.id)}
+                      >
+                        <ScanThumb
+                          imagemUrl={item.imagemUrl}
+                          imagemDemo={item.imagemDemo}
+                          categoriaPrincipal={catPrincipal}
+                          style={styles.imagem}
+                          resizeMode="cover"
+                          iconSize={22}
+                        />
+
+                        <View style={styles.informacoes}>
+                          <Text style={styles.nome} numberOfLines={2}>
+                            {item.nomeProduto}
+                          </Text>
+
+                          <View style={styles.status}>
+                            <View
+                              style={[
+                                styles.bolinhaStatus,
+                                { backgroundColor: cor },
+                              ]}
+                            />
+
+                            <Text
+                              style={[styles.textoStatus, { color: cor }]}
+                            >
+                              {seguro ? "Seguro" : "Risco"}
+                            </Text>
+                          </View>
+
+                          <Text style={styles.horario}>
+                            {formatarHorario(item.createdAt)}
                           </Text>
                         </View>
 
-                        <Text style={styles.horario}>
-                          {item.horario}
-                        </Text>
-                      </View>
+                        <Feather
+                          name="chevron-right"
+                          size={18}
+                          color="#94A3B8"
+                        />
+                      </TouchableOpacity>
                     </View>
-                  </View>
-                );
-              })}
-            </View>
-          ))
+                  );
+                })}
+              </View>
+            ))}
+
+            {carregandoMais && (
+              <View style={styles.paginacaoLoader}>
+                <ActivityIndicator size="small" color="#00783F" />
+              </View>
+            )}
+          </>
         ) : (
           <View style={styles.vazio}>
-            <Ionicons
-              name="time-outline"
-              size={42}
-              color="#A0B0A6"
-            />
+            <Ionicons name="time-outline" size={44} color="#A0B0A6" />
 
             <Text style={styles.vazioTitulo}>
               Nenhum escaneamento encontrado
             </Text>
 
             <Text style={styles.vazioTexto}>
-              Tente outro nome ou altere o filtro.
+              {busca.trim() || filtro !== "Todos"
+                ? "Tente buscar outro nome ou altere o filtro selecionado."
+                : "Você ainda não escaneou nenhum rótulo. Comece agora!"}
             </Text>
+
+            <TouchableOpacity
+              style={styles.btnEscanearVazio}
+              activeOpacity={0.85}
+              onPress={() => router.push("/scanner" as never)}
+            >
+              <MaterialCommunityIcons
+                name="barcode-scan"
+                size={18}
+                color="#FFFFFF"
+                style={{ marginRight: 6 }}
+              />
+              <Text style={styles.btnEscanearVazioText}>Escanear</Text>
+            </TouchableOpacity>
           </View>
         )}
       </ScrollView>
@@ -339,27 +400,40 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#F7F9F8",
   },
-
   conteudo: {
     paddingHorizontal: 17,
     paddingTop: 22,
     paddingBottom: 30,
   },
-
   titleHistorico: {
     fontSize: 25,
     fontWeight: "800",
     color: "#202623",
     letterSpacing: -0.7,
   },
-
   subtitle: {
     fontSize: 11,
     color: "#68756D",
     fontWeight: "600",
     marginBottom: 9,
   },
-
+  erroBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 10,
+  },
+  erroBannerText: {
+    flex: 1,
+    fontSize: 12,
+    color: "#DC2626",
+  },
   search: {
     minHeight: 42,
     borderRadius: 13,
@@ -371,14 +445,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
-
   input: {
     flex: 1,
     fontSize: 12,
     color: "#263B30",
     paddingVertical: 8,
   },
-
   filtros: {
     flexDirection: "row",
     alignItems: "center",
@@ -386,7 +458,6 @@ const styles = StyleSheet.create({
     marginTop: 16,
     marginBottom: 21,
   },
-
   filtro: {
     minHeight: 30,
     paddingHorizontal: 11,
@@ -398,32 +469,31 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 5,
   },
-
   filtroAtivo: {
     backgroundColor: "#BFE8D1",
     borderColor: "#00783F",
   },
-
   bolinhaFiltro: {
     width: 10,
     height: 10,
     borderRadius: 5,
   },
-
   textoFiltro: {
     fontSize: 11,
     color: "#59675E",
   },
-
   textoFiltroAtivo: {
     color: "#005C30",
     fontWeight: "700",
   },
-
+  loadingArea: {
+    paddingVertical: 60,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   grupo: {
     marginBottom: 12,
   },
-
   dataGrupo: {
     fontSize: 12,
     fontWeight: "800",
@@ -431,37 +501,46 @@ const styles = StyleSheet.create({
     marginLeft: 11,
     marginBottom: 8,
   },
-
   itemTimeline: {
     flexDirection: "row",
     minHeight: 76,
-    marginBottom: 7,
+    marginBottom: 8,
   },
-
   trilho: {
-    width: 31,
+    width: 32,
     alignItems: "center",
     position: "relative",
   },
-
   linha: {
     position: "absolute",
-    top: 0,
-    bottom: -7,
-    width: 1,
-    opacity: 0.6,
+    left: 15,
+    width: 2,
+    opacity: 0.65,
+    zIndex: 1,
   },
-
+  linhaPrimeiro: {
+    top: 32,
+    bottom: -8,
+  },
+  linhaIntermediario: {
+    top: 0,
+    bottom: -8,
+  },
+  linhaUltimo: {
+    top: 0,
+    height: 38,
+  },
   marcador: {
     position: "absolute",
-    top: 28,
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    borderWidth: 1,
+    top: 32,
+    left: 10,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 1.5,
     borderColor: "#FFFFFF",
+    zIndex: 2,
   },
-
   card: {
     flex: 1,
     minHeight: 76,
@@ -475,53 +554,49 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
   },
-
   imagem: {
-    width: 49,
-    height: 59,
+    width: 50,
+    height: 58,
+    borderRadius: 8,
   },
-
   informacoes: {
     flex: 1,
     justifyContent: "center",
   },
-
   nome: {
     fontSize: 12,
     fontWeight: "800",
     color: "#242925",
   },
-
   status: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
     marginTop: 3,
   },
-
   bolinhaStatus: {
     width: 10,
     height: 10,
     borderRadius: 5,
   },
-
   textoStatus: {
     fontSize: 10,
     fontWeight: "700",
   },
-
   horario: {
     fontSize: 9,
     color: "#68756D",
     marginTop: 4,
   },
-
+  paginacaoLoader: {
+    paddingVertical: 14,
+    alignItems: "center",
+  },
   vazio: {
     alignItems: "center",
     paddingHorizontal: 20,
-    paddingVertical: 50,
+    paddingVertical: 45,
   },
-
   vazioTitulo: {
     color: "#294638",
     fontSize: 14,
@@ -529,11 +604,24 @@ const styles = StyleSheet.create({
     marginTop: 12,
     textAlign: "center",
   },
-
   vazioTexto: {
     color: "#78847C",
     fontSize: 12,
     textAlign: "center",
     marginTop: 5,
+    marginBottom: 18,
+  },
+  btnEscanearVazio: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#00783F",
+    paddingHorizontal: 20,
+    paddingVertical: 11,
+    borderRadius: 22,
+  },
+  btnEscanearVazioText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "700",
   },
 });

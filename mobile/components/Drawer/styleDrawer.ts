@@ -1,8 +1,8 @@
-import { Dimensions, StatusBar, StyleSheet } from "react-native";
+import { Dimensions, Platform, StatusBar, StyleSheet } from "react-native";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
-const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.78, 300);
+const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.82, 310);
 
 export const styles = StyleSheet.create({
   modalContainer: {
@@ -10,133 +10,173 @@ export const styles = StyleSheet.create({
     flexDirection: "row",
     backgroundColor: "transparent",
   },
-
   backdrop: {
     position: "absolute",
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: "rgba(0, 0, 0, 0.28)",
+    backgroundColor: "rgba(15, 23, 42, 0.42)",
   },
-
   drawer: {
     width: DRAWER_WIDTH,
     height: "100%",
-    backgroundColor: "#FFFFFF",
-    paddingTop: (StatusBar.currentHeight ?? 0) + 20,
-    paddingHorizontal: 15,
+    backgroundColor: "#F8FAF9",
+    borderTopRightRadius: 24,
+    borderBottomRightRadius: 24,
     overflow: "hidden",
-    elevation: 12,
+    elevation: 16,
     shadowColor: "#000000",
-    shadowOffset: { width: 3, height: 0 },
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
+    shadowOffset: { width: 4, height: 0 },
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    justifyContent: "space-between",
   },
-
-  profile: {
-    alignItems: "flex-start",
-    marginBottom: 25,
-    paddingLeft: 4,
+  headerBanner: {
+    backgroundColor: "#006D37",
+    paddingTop:
+      Platform.OS === "android" ? (StatusBar.currentHeight ?? 24) + 18 : 54,
+    paddingBottom: 22,
+    paddingHorizontal: 20,
+    borderBottomRightRadius: 24,
   },
-
+  headerTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 14,
+  },
   avatarContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "#E5E7EB",
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: "#EAF5EE",
+    borderWidth: 2.5,
+    borderColor: "#FFFFFF",
     overflow: "hidden",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 8,
   },
-
   avatar: {
     width: "100%",
     height: "100%",
   },
-
-  userName: {
-    fontSize: 12,
-    fontWeight: "bold",
-    color: "#F59E0B",
-  },
-
-  menuCard: {
-    width: "100%",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    paddingVertical: 6,
-    paddingHorizontal: 5,
-    borderWidth: 1,
-    borderColor: "#F0F0F0",
-    elevation: 3,
-    shadowColor: "#000000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 3,
-    zIndex: 2,
-  },
-
-  menuItem: {
-    minHeight: 43,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 3,
-    gap: 8,
-  },
-
-  menuText: {
-    fontSize: 13,
-    fontWeight: "600",
+  avatarInitialText: {
+    fontFamily: "Geist_700Bold",
+    fontSize: 24,
     color: "#006D37",
   },
-
-  bottomArea: {
-    flex: 1,
-    justifyContent: "flex-end",
-    alignItems: "center",
-    paddingBottom: 145,
-    zIndex: 2,
-  },
-
-  logoutButton: {
-    width: 70,
-    height: 35,
-    backgroundColor: "#006D37",
-    borderRadius: 11,
+  closeDrawerBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "rgba(255,255,255,0.16)",
     alignItems: "center",
     justifyContent: "center",
   },
-
-  logoutText: {
-    fontSize: 12,
-    fontWeight: "700",
+  userName: {
+    fontFamily: "Geist_700Bold",
+    fontSize: 17,
     color: "#FFFFFF",
   },
-
-  chart: {
-    position: "absolute",
-    left: 4,
-    bottom: 0,
-    height: 125,
+  userEmail: {
+    fontFamily: "Geist_400Regular",
+    fontSize: 12.5,
+    color: "#D1FAE5",
+    marginTop: 2,
+  },
+  menuBody: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingTop: 18,
+    zIndex: 2,
+  },
+  menuSectionLabel: {
+    fontFamily: "Geist_600SemiBold",
+    fontSize: 11,
+    letterSpacing: 0.6,
+    color: "#64748B",
+    marginBottom: 8,
+    paddingHorizontal: 8,
+  },
+  menuCard: {
+    width: "100%",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderWidth: 1,
+    borderColor: "#E8EDF0",
+    elevation: 2,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+  },
+  menuItem: {
+    minHeight: 46,
     flexDirection: "row",
-    alignItems: "flex-end",
-    gap: 4,
-    opacity: 0.95,
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 10,
+    borderRadius: 12,
   },
-
-  bar: {
-    width: 12,
-    borderTopLeftRadius: 2,
-    borderTopRightRadius: 2,
+  menuItemLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
   },
-
+  menuIconBox: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: "#EAF5EE",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  menuText: {
+    fontFamily: "Geist_600SemiBold",
+    fontSize: 13.5,
+    color: "#1E293B",
+  },
+  menuDivider: {
+    height: 1,
+    backgroundColor: "#F1F5F9",
+    marginLeft: 54,
+  },
+  bottomArea: {
+    paddingHorizontal: 20,
+    paddingBottom: 34,
+    paddingTop: 12,
+    zIndex: 3,
+  },
+  logoutButton: {
+    width: "100%",
+    height: 46,
+    backgroundColor: "#006D37",
+    borderRadius: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    elevation: 3,
+    shadowColor: "#006D37",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 5,
+  },
+  logoutText: {
+    fontFamily: "Geist_700Bold",
+    fontSize: 14,
+    color: "#FFFFFF",
+  },
   drawerImage: {
     position: "absolute",
     bottom: 0,
     left: 0,
-    width: 100,
-    height: 150,
+    width: 90,
+    height: 130,
+    opacity: 0.45,
+    zIndex: 1,
   },
 });

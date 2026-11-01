@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   StatusBar,
   StyleSheet,
   Text,
@@ -9,32 +8,26 @@ import {
   View,
   useWindowDimensions,
 } from "react-native";
-
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Ionicons, Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+
 import DrawerMenu from "@/components/Drawer/DrawerMenu";
 import TabBar from "@/components/TabBar/indexTab";
+import { enviarFotoScanner, extrairMensagemErro } from "../services/api";
 
 export default function ScannerScreen() {
   const { width, height } = useWindowDimensions();
-
   const [permission, requestPermission] = useCameraPermissions();
 
   const [flashAtivo, setFlashAtivo] = useState(false);
   const [menuAberto, setMenuAberto] = useState(false);
-  const [cameraRef, setCameraRef] = useState<any>(null);
+  const [cameraRef, setCameraRef] = useState<CameraView | null>(null);
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<{ status: string; msg: string } | null>(
-    null
-  );
+  const [erroInline, setErroInline] = useState<string | null>(null);
 
-  const SEU_IP_LOCAL = "192.168.1.8";
-
-  // Responsividade
-  const tamanhoMoldura = Math.min(width * 0.64, 230);
+  const tamanhoMoldura = Math.min(width * 0.68, 250);
   const tamanhoBotao = Math.min(width * 0.115, 48);
 
   const navegar = (rota: string) => {
@@ -42,80 +35,57 @@ export default function ScannerScreen() {
     router.push(rota as never);
   };
 
-  const takePictureAndReadText = async () => {
+  const capturarEAnalisarRotulo = async () => {
     if (!cameraRef || loading) return;
     setLoading(true);
-    setResult(null);
+    setErroInline(null);
 
     try {
-      let restricoesAtivas: string[] = [];
-      const restricoesJson = await AsyncStorage.getItem("@usuario_restricoes");
-      if (restricoesJson) {
-        restricoesAtivas = JSON.parse(restricoesJson);
-      } else {
-        const lac = await AsyncStorage.getItem("@restricao_lactose");
-        const glut = await AsyncStorage.getItem("@restricao_gluten");
-        const amen = await AsyncStorage.getItem("@restricao_amendoim");
-
-        if (lac === "true") restricoesAtivas.push("lactose");
-        if (glut === "true") restricoesAtivas.push("gluten");
-        if (amen === "true") restricoesAtivas.push("amendoim");
-      }
-
-      if (restricoesAtivas.length === 0) {
-        restricoesAtivas = ["gluten", "lactose"];
-      }
-
       const photo = await cameraRef.takePictureAsync({
-        quality: 0.8,
+        quality: 0.7,
         base64: false,
       });
 
-      const formData = new FormData();
-      // @ts-ignore
-      formData.append("photo", {
-        uri: photo.uri,
-        name: "photo.jpg",
-        type: "image/jpeg",
-      });
-
-      formData.append("restricoes", JSON.stringify(restricoesAtivas));
-      const userId = await AsyncStorage.getItem("@usuario_id");
-      if (userId) {
-        formData.append("userId", userId);
+      if (!photo?.uri) {
+        setErroInline("Não foi possível capturar a foto. Tente novamente.");
+        setLoading(false);
+        return;
       }
 
-      const response = await fetch(`http://${SEU_IP_LOCAL}:3000/scanner`, {
-        method: "POST",
-        body: formData,
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "multipart/form-data",
-        },
-      });
+      // Envia SÓ a imagem autenticada via JWT; o servidor busca o perfil do usuário no MongoDB
+      const data = await enviarFotoScanner(photo.uri);
 
-      const data = await response.json();
-
-      if (data.sucesso || data.status) {
-        if (data.status === "PERIGO") {
-          const msg = `Atenção! Encontramos: ${data.alergicosEncontrados.join(", ")}`;
-          setResult({ status: "PERIGO", msg });
-          Alert.alert("⚠️ Alerta de Restrição", msg);
-        } else {
-          const msg = "Produto seguro para o seu perfil!";
-          setResult({ status: "SEGURO", msg });
-          Alert.alert("✅ Produto Seguro", msg);
-        }
+      if (data.veredito === "INCONCLUSIVO" || data.status === "INCONCLUSIVO") {
+        router.push({
+          pathname: "/resultado" as any,
+          params: {
+            veredito: "INCONCLUSIVO",
+            localUri: photo.uri,
+            textoBruto: data.textoBruto || "",
+          },
+        });
+        return;
       }
-    } catch (error) {
-      console.error(error);
-      Alert.alert("Erro de Conexão", "Não foi possível alcançar o servidor.");
+
+      const idScan = data.id || data._id;
+      if (idScan) {
+        router.push({
+          pathname: "/resultado" as any,
+          params: {
+            id: String(idScan),
+            localUri: photo.uri,
+          },
+        });
+      } else {
+        setErroInline("Não foi possível obter o resultado da leitura.");
+      }
+    } catch (error: any) {
+      setErroInline(extrairMensagemErro(error));
     } finally {
       setLoading(false);
     }
   };
 
-  // Carregamento da permissão
   if (!permission) {
     return (
       <View style={styles.permissionContainer}>
@@ -124,32 +94,23 @@ export default function ScannerScreen() {
     );
   }
 
-  // Solicitação de permissão
   if (!permission.granted) {
     return (
       <View style={styles.permissionContainer}>
-        <Ionicons
-          name="camera-outline"
-          size={65}
-          color="#24C95B"
-        />
+        <Ionicons name="camera-outline" size={65} color="#24C95B" />
 
-        <Text style={styles.permissionTitle}>
-          Acesso à câmera
-        </Text>
+        <Text style={styles.permissionTitle}>Acesso à câmera</Text>
 
         <Text style={styles.permissionText}>
-          Precisamos acessar sua câmera para analisar os rótulos
-          dos produtos.
+          Precisamos acessar sua câmera para fotografar e analisar a lista de
+          ingredientes dos rótulos.
         </Text>
 
         <TouchableOpacity
           style={styles.permissionButton}
           onPress={requestPermission}
         >
-          <Text style={styles.permissionButtonText}>
-            Permitir acesso
-          </Text>
+          <Text style={styles.permissionButtonText}>Permitir acesso</Text>
         </TouchableOpacity>
       </View>
     );
@@ -157,9 +118,7 @@ export default function ScannerScreen() {
 
   return (
     <View style={styles.container}>
-      <StatusBar
-        barStyle="light-content"
-      />
+      <StatusBar barStyle="light-content" />
 
       {/* CÂMERA */}
       <CameraView
@@ -170,51 +129,43 @@ export default function ScannerScreen() {
       />
 
       {/* CAMADA ESCURA */}
-      <View
-        style={styles.overlay}
-        pointerEvents="box-none"
-      >
-        <SafeAreaView
-          style={styles.safeArea}
-          edges={["top"]}
-        >
+      <View style={styles.overlay} pointerEvents="box-none">
+        <SafeAreaView style={styles.safeArea} edges={["top"]}>
           {/* CABEÇALHO */}
           <View style={styles.header}>
-            {/* MENU */}
             <TouchableOpacity
               style={styles.headerButton}
               onPress={() => setMenuAberto(true)}
               activeOpacity={0.7}
+              accessibilityLabel="Abrir menu"
             >
-              <Feather
-                name="menu"
-                size={22}
-                color="#FFFFFF"
-              />
+              <Feather name="menu" size={22} color="#FFFFFF" />
             </TouchableOpacity>
 
-            {/* NOME */}
-            <Text style={styles.headerTitle}>
-              RotuScan
-            </Text>
+            <Text style={styles.headerTitle}>RotuScan</Text>
 
-            {/* PERFIL */}
             <TouchableOpacity
               style={styles.profileButton}
               onPress={() => navegar("/perfil")}
               activeOpacity={0.8}
+              accessibilityLabel="Ir para o perfil"
             >
-              <Ionicons
-                name="person-circle"
-                size={39}
-                color="#FFFFFF"
-              />
+              <Ionicons name="person-circle" size={39} color="#FFFFFF" />
             </TouchableOpacity>
           </View>
 
+          {erroInline ? (
+            <View style={styles.erroBanner}>
+              <Ionicons name="alert-circle" size={18} color="#FEF2F2" />
+              <Text style={styles.erroBannerText}>{erroInline}</Text>
+              <TouchableOpacity onPress={() => setErroInline(null)}>
+                <Feather name="x" size={16} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
+          ) : null}
+
           {/* CONTROLES LATERAIS */}
           <View style={styles.sideControls}>
-            {/* FLASH */}
             <TouchableOpacity
               style={[
                 styles.controlButton,
@@ -228,6 +179,7 @@ export default function ScannerScreen() {
               ]}
               onPress={() => setFlashAtivo(!flashAtivo)}
               activeOpacity={0.7}
+              accessibilityLabel="Alternar flash"
             >
               <Ionicons
                 name={flashAtivo ? "flash" : "flash-outline"}
@@ -236,7 +188,6 @@ export default function ScannerScreen() {
               />
             </TouchableOpacity>
 
-            {/* HISTÓRICO */}
             <TouchableOpacity
               style={[
                 styles.controlButton,
@@ -247,12 +198,9 @@ export default function ScannerScreen() {
               ]}
               onPress={() => navegar("/historico")}
               activeOpacity={0.7}
+              accessibilityLabel="Ver histórico"
             >
-              <Ionicons
-                name="time-outline"
-                size={22}
-                color="#FFFFFF"
-              />
+              <Ionicons name="time-outline" size={22} color="#FFFFFF" />
             </TouchableOpacity>
           </View>
 
@@ -272,6 +220,9 @@ export default function ScannerScreen() {
               <View style={[styles.corner, styles.bottomLeft]} />
               <View style={[styles.corner, styles.bottomRight]} />
             </View>
+            <Text style={styles.frameHint}>
+              Enquadre a lista de ingredientes do rótulo
+            </Text>
           </View>
 
           {/* INDICADOR DE ANÁLISE / BOTÃO CAPTURAR */}
@@ -282,23 +233,27 @@ export default function ScannerScreen() {
             ]}
           >
             <TouchableOpacity
-              style={styles.scanningIndicator}
+              style={[
+                styles.scanningIndicator,
+                loading && { backgroundColor: "rgba(0, 109, 55, 0.92)" },
+              ]}
               activeOpacity={0.8}
-              onPress={takePictureAndReadText}
+              onPress={capturarEAnalisarRotulo}
+              disabled={loading}
+              accessibilityRole="button"
+              accessibilityLabel="Fotografar e analisar rótulo"
             >
               <View style={styles.scanningIcon}>
                 <Ionicons
                   name="scan-outline"
                   size={19}
-                  color="#24C95B"
+                  color={loading ? "#FFFFFF" : "#24C95B"}
                 />
               </View>
 
               <Text style={styles.scanningText}>
                 {loading
                   ? "Buscando restrições..."
-                  : result
-                  ? result.msg
                   : "Toque para escanear rótulo"}
               </Text>
 
@@ -329,7 +284,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#000000",
   },
-
   permissionContainer: {
     flex: 1,
     alignItems: "center",
@@ -337,14 +291,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 35,
     backgroundColor: "#FFFFFF",
   },
-
   permissionTitle: {
     fontSize: 22,
     fontWeight: "700",
     color: "#006B3A",
     marginTop: 20,
   },
-
   permissionText: {
     fontSize: 14,
     color: "#6B7280",
@@ -352,7 +304,6 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     marginTop: 10,
   },
-
   permissionButton: {
     backgroundColor: "#24C95B",
     paddingHorizontal: 30,
@@ -360,24 +311,18 @@ const styles = StyleSheet.create({
     borderRadius: 25,
     marginTop: 25,
   },
-
   permissionButtonText: {
     color: "#FFFFFF",
     fontWeight: "700",
     fontSize: 15,
   },
-
-  // CAMADA SOBRE A CÂMERA
   overlay: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: "rgba(0, 0, 0, 0.10)",
+    backgroundColor: "rgba(0, 0, 0, 0.12)",
   },
-
   safeArea: {
     flex: 1,
   },
-
-  // CABEÇALHO
   header: {
     height: 53,
     paddingHorizontal: 15,
@@ -385,47 +330,58 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-
   headerButton: {
     width: 38,
     height: 38,
     borderRadius: 22,
-    backgroundColor: "rgba(0, 0, 0, 0.30)",
+    backgroundColor: "rgba(0, 0, 0, 0.35)",
     alignItems: "center",
     justifyContent: "center",
   },
-
   headerTitle: {
     position: "absolute",
     left: 55,
     right: 55,
     textAlign: "center",
     color: "#FFFFFF",
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: "700",
     textShadowColor: "rgba(0,0,0,0.5)",
     textShadowRadius: 5,
   },
-
   profileButton: {
     width: 38,
     height: 38,
     borderRadius: 22,
-    backgroundColor: "rgba(0, 0, 0, 0.30)",
+    backgroundColor: "rgba(0, 0, 0, 0.35)",
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
   },
-
-  // BOTÕES LATERAIS
+  erroBanner: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    backgroundColor: "rgba(220, 38, 38, 0.92)",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  erroBannerText: {
+    flex: 1,
+    color: "#FFFFFF",
+    fontSize: 12.5,
+    fontWeight: "600",
+  },
   sideControls: {
     position: "absolute",
     right: 12,
-    top: "9%",
+    top: "12%",
     gap: 13,
     alignItems: "center",
   },
-
   controlButton: {
     borderRadius: 50,
     backgroundColor: "rgba(120, 75, 48, 0.65)",
@@ -434,87 +390,84 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
-  // MOLDURA DE SCANNER
   scannerArea: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
   },
-
   scannerFrame: {
     position: "relative",
   },
-
+  frameHint: {
+    marginTop: 14,
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "600",
+    backgroundColor: "rgba(0,0,0,0.45)",
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 12,
+    overflow: "hidden",
+  },
   corner: {
     position: "absolute",
     width: "25%",
     height: "25%",
-    borderColor: "#008B5E",
+    borderColor: "#22C55E",
   },
-
   topLeft: {
     top: 0,
     left: 0,
-    borderTopWidth: 3,
-    borderLeftWidth: 3,
-    borderTopLeftRadius: 7,
+    borderTopWidth: 3.5,
+    borderLeftWidth: 3.5,
+    borderTopLeftRadius: 8,
   },
-
   topRight: {
     top: 0,
     right: 0,
-    borderTopWidth: 3,
-    borderRightWidth: 3,
-    borderTopRightRadius: 7,
+    borderTopWidth: 3.5,
+    borderRightWidth: 3.5,
+    borderTopRightRadius: 8,
   },
-
   bottomLeft: {
     bottom: 0,
     left: 0,
-    borderBottomWidth: 3,
-    borderLeftWidth: 3,
-    borderBottomLeftRadius: 7,
+    borderBottomWidth: 3.5,
+    borderLeftWidth: 3.5,
+    borderBottomLeftRadius: 8,
   },
-
   bottomRight: {
     bottom: 0,
     right: 0,
-    borderBottomWidth: 3,
-    borderRightWidth: 3,
-    borderBottomRightRadius: 7,
+    borderBottomWidth: 3.5,
+    borderRightWidth: 3.5,
+    borderBottomRightRadius: 8,
   },
-
-  // INDICADOR INFERIOR
   bottomContainer: {
     alignItems: "center",
     justifyContent: "center",
   },
-
   scanningIndicator: {
-    minHeight: 43,
-    minWidth: 205,
+    minHeight: 46,
+    minWidth: 225,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 15,
-    paddingVertical: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
     borderRadius: 30,
-    backgroundColor: "rgba(35, 35, 35, 0.88)",
+    backgroundColor: "rgba(35, 35, 35, 0.90)",
     gap: 9,
   },
-
   scanningIcon: {
     alignItems: "center",
     justifyContent: "center",
   },
-
   scanningText: {
     color: "#FFFFFF",
-    fontSize: 12,
-    fontWeight: "500",
+    fontSize: 13,
+    fontWeight: "600",
   },
-
   loadingIcon: {
     marginLeft: 2,
   },

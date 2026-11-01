@@ -1,184 +1,193 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-  View,
+  ActivityIndicator,
+  RefreshControl,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
   Text,
   TextInput,
-  ScrollView,
-  Image,
   TouchableOpacity,
-  StyleSheet,
-  StatusBar,
+  View,
   useWindowDimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather, Ionicons } from "@expo/vector-icons";
+import { router, useFocusEffect } from "expo-router";
 
 import TabBar from "../components/TabBar/indexTab";
 import AppHeader from "@/components/Header/AppHeader";
+import ScanThumb from "../components/ScanThumb";
+import api, { extrairMensagemErro } from "../services/api";
 
 type StatusProduto = "Seguro" | "Risco";
 type Filtro = "Todos" | StatusProduto;
 
 type ProdutoCurtido = {
   id: string;
-  nome: string;
-  imagem: string;
-  status: StatusProduto;
+  nomeProduto: string;
+  veredito: "SEGURO" | "PERIGOSO";
+  alergicosDetectados?: {
+    categoria: string;
+    tipo: "CONTEM" | "TRACOS";
+    termos?: string[];
+  }[];
   curtido: boolean;
+  imagemUrl: string | null;
+  imagemDemo: string | null;
 };
 
-const produtosIniciais: ProdutoCurtido[] = [
-  {
-    id: "1",
-    nome: "Sorvetinho",
-    imagem:
-      "https://images.unsplash.com/photo-1563805042-7684c019e1cb?w=300",
-    status: "Seguro",
-    curtido: true,
-  },
-  {
-    id: "2",
-    nome: "Leite Integral",
-    imagem:
-      "https://images.unsplash.com/photo-1550583724-b2692b85b150?w=300",
-    status: "Seguro",
-    curtido: true,
-  },
-  {
-    id: "3",
-    nome: "Cervejinha",
-    imagem:
-      "https://images.unsplash.com/photo-1608270586620-248524c67de9?w=300",
-    status: "Seguro",
-    curtido: true,
-  },
-  {
-    id: "4",
-    nome: "Chocolatinho",
-    imagem:
-      "https://images.unsplash.com/photo-1548907040-4d42a0b3a1f2?w=300",
-    status: "Seguro",
-    curtido: true,
-  },
-  {
-    id: "5",
-    nome: "Suplementinho",
-    imagem:
-      "https://images.unsplash.com/photo-1593095948071-474c5cc2989d?w=300",
-    status: "Seguro",
-    curtido: true,
-  },
-  {
-    id: "6",
-    nome: "Torradinha",
-    imagem:
-      "https://images.unsplash.com/photo-1589367920969-ab8e050bbb04?w=300",
-    status: "Seguro",
-    curtido: true,
-  },
-  {
-    id: "7",
-    nome: "Biscoitinhos",
-    imagem:
-      "https://images.unsplash.com/photo-1499636136210-6f4ee915583e?w=300",
-    status: "Risco",
-    curtido: true,
-  },
-  {
-    id: "8",
-    nome: "Bolachinhas",
-    imagem:
-      "https://images.unsplash.com/photo-1558961363-fa8fdf82db35?w=300",
-    status: "Seguro",
-    curtido: true,
-  },
-];
-
 export default function ItensCurtidos() {
-  const [produtos, setProdutos] = useState(produtosIniciais);
+  const [produtos, setProdutos] = useState<ProdutoCurtido[]>([]);
+  const [totalServidor, setTotalServidor] = useState(0);
+
   const [busca, setBusca] = useState("");
+  const [buscaDebounced, setBuscaDebounced] = useState("");
   const [filtro, setFiltro] = useState<Filtro>("Todos");
-  const [drawerVisible, setDrawerVisible] = useState(false);
+
+  const [carregando, setCarregando] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [erroInline, setErroInline] = useState<string | null>(null);
+
+  const focoInicialRef = useRef(false);
 
   const { width } = useWindowDimensions();
   const espacamento = 12;
   const paddingHorizontal = 17;
+  const larguraCard = (width - paddingHorizontal * 2 - espacamento) / 2;
 
-  const larguraCard =
-    (width - paddingHorizontal * 2 - espacamento) / 2;
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setBuscaDebounced(busca.trim());
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [busca]);
 
-  const quantidadeCurtidos = produtos.filter(
-    (produto) => produto.curtido
-  ).length;
+  const carregarCurtidos = useCallback(
+    async (isRefresh = false) => {
+      if (isRefresh) {
+        setRefreshing(true);
+      } else {
+        setCarregando(true);
+      }
+      setErroInline(null);
 
-  const produtosFiltrados = useMemo(() => {
-    const termo = busca.trim().toLowerCase();
+      try {
+        const res = await api.get("/users/historico", {
+          params: {
+            curtido: "true",
+            filtro,
+            busca: buscaDebounced,
+            limit: 60,
+            page: 1,
+          },
+        });
 
-    return produtos.filter((produto) => {
-      const correspondeBusca = produto.nome
-        .toLowerCase()
-        .includes(termo);
+        const lista: ProdutoCurtido[] = Array.isArray(res.data?.itens)
+          ? res.data.itens
+          : [];
+        setProdutos(lista);
+        setTotalServidor(
+          typeof res.data?.total === "number" ? res.data.total : lista.length
+        );
+      } catch (err: any) {
+        setErroInline(extrairMensagemErro(err));
+      } finally {
+        setCarregando(false);
+        setRefreshing(false);
+      }
+    },
+    [filtro, buscaDebounced]
+  );
 
-      const correspondeFiltro =
-        filtro === "Todos" || produto.status === filtro;
+  useEffect(() => {
+    carregarCurtidos(false);
+  }, [carregarCurtidos]);
 
-      return (
-        produto.curtido &&
-        correspondeBusca &&
-        correspondeFiltro
-      );
+  useFocusEffect(
+    useCallback(() => {
+      if (focoInicialRef.current) {
+        carregarCurtidos(false);
+      } else {
+        focoInicialRef.current = true;
+      }
+    }, [carregarCurtidos])
+  );
+
+  /**
+   * Descurtir com atualização otimista:
+   * Remove da grade e decrementa o contador imediatamente; faz rollback se falhar.
+   */
+  const descurtirOtimista = async (produtoAlvo: ProdutoCurtido) => {
+    setErroInline(null);
+    const snapshotProdutos = [...produtos];
+    const snapshotTotal = totalServidor;
+
+    setProdutos((atuais) => atuais.filter((p) => p.id !== produtoAlvo.id));
+    setTotalServidor((t) => Math.max(0, t - 1));
+
+    try {
+      await api.patch(`/users/historico/${produtoAlvo.id}/curtir`, {
+        curtido: false,
+      });
+    } catch (err: any) {
+      // Rollback em caso de erro
+      setProdutos(snapshotProdutos);
+      setTotalServidor(snapshotTotal);
+      setErroInline(extrairMensagemErro(err));
+    }
+  };
+
+  const abrirResultado = (id: string) => {
+    router.push({
+      pathname: "/resultado" as any,
+      params: { id },
     });
-  }, [produtos, busca, filtro]);
-
-  function alternarCurtida(id: string) {
-    setProdutos((atuais) =>
-      atuais.map((produto) =>
-        produto.id === id
-          ? { ...produto, curtido: !produto.curtido }
-          : produto
-      )
-    );
-  }
+  };
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top"]}>
-      <StatusBar
-        barStyle="dark-content"
-      />
-      <AppHeader onMenuPress={() => setDrawerVisible(true)} />
+      <StatusBar barStyle="dark-content" />
+      <AppHeader />
+
       <ScrollView
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.conteudo}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => carregarCurtidos(true)}
+            colors={["#00783F"]}
+            tintColor="#00783F"
+          />
+        }
       >
-        {/* Título e contador */}
+        {/* Título e contador vindo de `total` */}
         <View style={styles.tituloLinha}>
           <View style={styles.tituloGrupo}>
             <Text style={styles.titulo}>Itens Curtidos</Text>
-            <Text style={styles.subtitulo}>
-              Produtos que você salvou
-            </Text>
+            <Text style={styles.subtitulo}>Produtos que você salvou</Text>
           </View>
 
           <View style={styles.contador}>
-            <Ionicons
-              name="heart"
-              size={15}
-              color="#F52222"
-            />
+            <Ionicons name="heart" size={15} color="#F52222" />
             <Text style={styles.contadorTexto}>
-              {quantidadeCurtidos} itens
+              {totalServidor} {totalServidor === 1 ? "item" : "itens"}
             </Text>
           </View>
         </View>
 
+        {erroInline ? (
+          <View style={styles.erroBanner}>
+            <Ionicons name="alert-circle" size={16} color="#DC2626" />
+            <Text style={styles.erroBannerText}>{erroInline}</Text>
+          </View>
+        ) : null}
+
         {/* Pesquisa */}
         <View style={styles.pesquisa}>
-          <Feather
-            name="search"
-            size={18}
-            color="#728078"
-          />
+          <Feather name="search" size={18} color="#728078" />
 
           <TextInput
             value={busca}
@@ -194,105 +203,87 @@ export default function ItensCurtidos() {
               onPress={() => setBusca("")}
               accessibilityLabel="Limpar pesquisa"
             >
-              <Ionicons
-                name="close-circle"
-                size={18}
-                color="#89948E"
-              />
+              <Ionicons name="close-circle" size={18} color="#89948E" />
             </TouchableOpacity>
           )}
         </View>
 
         {/* Filtros */}
         <View style={styles.filtros}>
-          {(["Todos", "Risco", "Seguro"] as Filtro[]).map(
-            (opcao) => (
-              <TouchableOpacity
-                key={opcao}
-                activeOpacity={0.7}
-                onPress={() => setFiltro(opcao)}
+          {(["Todos", "Risco", "Seguro"] as Filtro[]).map((opcao) => (
+            <TouchableOpacity
+              key={opcao}
+              activeOpacity={0.7}
+              onPress={() => setFiltro(opcao)}
+              style={[styles.filtro, filtro === opcao && styles.filtroAtivo]}
+            >
+              {opcao !== "Todos" && (
+                <View
+                  style={[
+                    styles.bolinhaFiltro,
+                    {
+                      backgroundColor:
+                        opcao === "Risco" ? "#BF2922" : "#00783F",
+                    },
+                  ]}
+                />
+              )}
+
+              <Text
                 style={[
-                  styles.filtro,
-                  filtro === opcao && styles.filtroAtivo,
+                  styles.textoFiltro,
+                  filtro === opcao && styles.textoFiltroAtivo,
                 ]}
               >
-                {opcao !== "Todos" && (
-                  <View
-                    style={[
-                      styles.bolinhaFiltro,
-                      {
-                        backgroundColor:
-                          opcao === "Risco"
-                            ? "#BF2922"
-                            : "#00783F",
-                      },
-                    ]}
-                  />
-                )}
-
-                <Text
-                  style={[
-                    styles.textoFiltro,
-                    filtro === opcao && styles.textoFiltroAtivo,
-                  ]}
-                >
-                  {opcao}
-                </Text>
-              </TouchableOpacity>
-            )
-          )}
+                {opcao}
+              </Text>
+            </TouchableOpacity>
+          ))}
         </View>
 
-        {/* Grade de produtos curtidos */}
-        {produtosFiltrados.length > 0 ? (
+        {/* Grade de 2 colunas de produtos curtidos */}
+        {carregando && produtos.length === 0 ? (
+          <View style={styles.loadingArea}>
+            <ActivityIndicator size="large" color="#00783F" />
+          </View>
+        ) : produtos.length > 0 ? (
           <View style={styles.grade}>
-            {produtosFiltrados.map((produto) => {
-              const cor =
-                produto.status === "Seguro"
-                  ? "#00783F"
-                  : "#BF2922";
+            {produtos.map((produto) => {
+              const ehSeguro = produto.veredito === "SEGURO";
+              const cor = ehSeguro ? "#00783F" : "#BF2922";
+              const catPrincipal =
+                produto.alergicosDetectados?.[0]?.categoria || null;
 
               return (
-                <View
+                <TouchableOpacity
                   key={produto.id}
-                  style={[
-                    styles.card,
-                    { width: larguraCard },
-                  ]}
+                  style={[styles.card, { width: larguraCard }]}
+                  activeOpacity={0.85}
+                  onPress={() => abrirResultado(produto.id)}
                 >
                   <TouchableOpacity
                     style={styles.botaoCoracao}
-                    onPress={() => alternarCurtida(produto.id)}
+                    onPress={() => descurtirOtimista(produto)}
                     activeOpacity={0.7}
                     accessibilityRole="button"
-                    accessibilityLabel={`Desfavoritar ${produto.nome}`}
+                    accessibilityLabel={`Desfavoritar ${produto.nomeProduto}`}
                   >
-                    <Ionicons
-                      name={
-                        produto.curtido
-                          ? "heart"
-                          : "heart-outline"
-                      }
-                      size={19}
-                      color={
-                        produto.curtido ? "#F52222" : "#777777"
-                      }
-                    />
+                    <Ionicons name="heart" size={19} color="#F52222" />
                   </TouchableOpacity>
 
                   <View style={styles.imagemContainer}>
-                    <Image
-                      source={{ uri: produto.imagem }}
+                    <ScanThumb
+                      imagemUrl={produto.imagemUrl}
+                      imagemDemo={produto.imagemDemo}
+                      categoriaPrincipal={catPrincipal}
                       style={styles.imagemProduto}
                       resizeMode="contain"
+                      iconSize={32}
                     />
                   </View>
 
-                  <Text
-                    style={styles.nomeProduto}
-                    numberOfLines={2}
-                  >
-                    {produto.nome}
+                  <Text style={styles.nomeProduto} numberOfLines={2}>
+                    {produto.nomeProduto}
                   </Text>
 
                   <View style={styles.status}>
@@ -302,33 +293,24 @@ export default function ItensCurtidos() {
                         { backgroundColor: cor },
                       ]}
                     />
-                    <Text
-                      style={[
-                        styles.textoStatus,
-                        { color: cor },
-                      ]}
-                    >
-                      {produto.status}
+                    <Text style={[styles.textoStatus, { color: cor }]}>
+                      {ehSeguro ? "Seguro" : "Risco"}
                     </Text>
                   </View>
-                </View>
+                </TouchableOpacity>
               );
             })}
           </View>
         ) : (
           <View style={styles.vazio}>
-            <Ionicons
-              name="heart-outline"
-              size={45}
-              color="#A0B0A6"
-            />
+            <Ionicons name="heart-outline" size={45} color="#A0B0A6" />
 
             <Text style={styles.vazioTitulo}>
               Nenhum item curtido encontrado
             </Text>
 
             <Text style={styles.vazioTexto}>
-              Favorite um produto ou tente outra pesquisa.
+              Favorite um produto na tela de resultado ou tente outra pesquisa.
             </Text>
           </View>
         )}
@@ -344,13 +326,11 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#F7F9F8",
   },
-
   conteudo: {
     paddingHorizontal: 17,
     paddingTop: 20,
     paddingBottom: 24,
   },
-
   tituloLinha: {
     flexDirection: "row",
     alignItems: "center",
@@ -358,24 +338,20 @@ const styles = StyleSheet.create({
     gap: 6,
     marginBottom: 16,
   },
-
   tituloGrupo: {
     flex: 1,
   },
-
   titulo: {
     fontSize: 22,
     fontWeight: "800",
     color: "#202623",
     letterSpacing: -0.7,
   },
-
   subtitulo: {
     fontSize: 11,
     color: "#68756D",
     marginTop: 2,
   },
-
   contador: {
     flexDirection: "row",
     alignItems: "center",
@@ -387,13 +363,28 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#D5E4DA",
   },
-
   contadorTexto: {
     fontSize: 10,
     fontWeight: "700",
     color: "#294638",
   },
-
+  erroBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  erroBannerText: {
+    flex: 1,
+    fontSize: 12,
+    color: "#DC2626",
+  },
   pesquisa: {
     height: 42,
     borderRadius: 12,
@@ -405,14 +396,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
-
   input: {
     flex: 1,
     fontSize: 11,
     color: "#263B30",
     paddingVertical: 0,
   },
-
   filtros: {
     flexDirection: "row",
     alignItems: "center",
@@ -420,7 +409,6 @@ const styles = StyleSheet.create({
     marginTop: 15,
     marginBottom: 18,
   },
-
   filtro: {
     minHeight: 30,
     paddingHorizontal: 10,
@@ -433,35 +421,34 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 5,
   },
-
   filtroAtivo: {
     backgroundColor: "#BFE8D1",
     borderColor: "#00783F",
   },
-
   bolinhaFiltro: {
     width: 10,
     height: 10,
     borderRadius: 5,
   },
-
   textoFiltro: {
     fontSize: 10,
     color: "#59665E",
   },
-
   textoFiltroAtivo: {
     color: "#005C30",
     fontWeight: "700",
   },
-
+  loadingArea: {
+    paddingVertical: 60,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   grade: {
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "space-between",
     rowGap: 13,
   },
-
   card: {
     minHeight: 166,
     backgroundColor: "#FFFFFF",
@@ -475,7 +462,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 4,
   },
-
   botaoCoracao: {
     position: "absolute",
     zIndex: 2,
@@ -486,7 +472,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   imagemContainer: {
     height: 94,
     width: "100%",
@@ -494,12 +479,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 7,
   },
-
   imagemProduto: {
     width: "88%",
     height: "100%",
+    borderRadius: 8,
   },
-
   nomeProduto: {
     minHeight: 16,
     fontSize: 11,
@@ -507,31 +491,26 @@ const styles = StyleSheet.create({
     color: "#252B27",
     marginTop: 2,
   },
-
   status: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
     marginTop: 5,
   },
-
   bolinhaStatus: {
     width: 8,
     height: 8,
     borderRadius: 4,
   },
-
   textoStatus: {
     fontSize: 9,
     fontWeight: "600",
   },
-
   vazio: {
     alignItems: "center",
     paddingVertical: 48,
     paddingHorizontal: 15,
   },
-
   vazioTitulo: {
     fontSize: 14,
     fontWeight: "700",
@@ -539,7 +518,6 @@ const styles = StyleSheet.create({
     marginTop: 12,
     textAlign: "center",
   },
-
   vazioTexto: {
     fontSize: 12,
     color: "#78847C",

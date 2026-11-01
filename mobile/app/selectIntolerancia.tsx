@@ -16,13 +16,21 @@ import {
   Text,
   TouchableOpacity,
   View,
-  Alert,
   ActivityIndicator,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Feather, Ionicons } from "@expo/vector-icons";
 
-import api from "../services/api";
+import api, { extrairMensagemErro } from "../services/api";
+import { useAuth } from "../context/AuthContext";
+import SensitivitySlider, {
+  NivelSensibilidade,
+} from "../components/SensitivitySlider";
+import ConfirmModal from "../components/ConfirmModal";
 
 const { width } = Dimensions.get("window");
 
@@ -33,6 +41,13 @@ const iconImages = {
 } as const;
 
 export default function IntoleranciasScreen() {
+  const insets = useSafeAreaInsets();
+  const {
+    rascunhoCadastro,
+    limparRascunhoCadastro,
+    salvarSessaoUsuario,
+  } = useAuth();
+
   const [fontsLoaded] = useFonts({
     Geist_400Regular,
     Geist_500Medium,
@@ -40,90 +55,157 @@ export default function IntoleranciasScreen() {
     Geist_700Bold,
   });
 
+  const [verificandoAcesso, setVerificandoAcesso] = useState(true);
+
   const [glutenAtivo, setGlutenAtivo] = useState(false);
   const [lactoseAtivo, setLactoseAtivo] = useState(false);
   const [amendoimAtivo, setAmendoimAtivo] = useState(false);
 
-  const [glutenNivel, setGlutenNivel] = useState(0);
-  const [lactoseNivel, setLactoseNivel] = useState(0);
-  const [amendoimNivel, setAmendoimNivel] = useState(0);
+  const [glutenNivel, setGlutenNivel] = useState<NivelSensibilidade>(1);
+  const [lactoseNivel, setLactoseNivel] = useState<NivelSensibilidade>(1);
+  const [amendoimNivel, setAmendoimNivel] = useState<NivelSensibilidade>(1);
+
   const [loading, setLoading] = useState(false);
+  const [erroInline, setErroInline] = useState<string | null>(null);
+  const [modalCancelarVisivel, setModalCancelarVisivel] = useState(false);
 
-  // Carrega as restrições já salvas no dispositivo, se existirem
   useEffect(() => {
-    const carregarRestricoesLocais = async () => {
-      const salvas = await AsyncStorage.getItem("@usuario_restricoes");
-      if (salvas) {
-        const lista: string[] = JSON.parse(salvas);
-        setGlutenAtivo(lista.includes("gluten"));
-        setLactoseAtivo(lista.includes("lactose"));
-        setAmendoimAtivo(lista.includes("amendoim"));
-      } else {
-        const g = await AsyncStorage.getItem("@restricao_gluten");
-        const l = await AsyncStorage.getItem("@restricao_lactose");
-        const a = await AsyncStorage.getItem("@restricao_amendoim");
-        setGlutenAtivo(g === "true");
-        setLactoseAtivo(l === "true");
-        setAmendoimAtivo(a === "true");
-      }
-    };
-    carregarRestricoesLocais();
-  }, []);
+    let ativo = true;
+    const checarFluxo = async () => {
+      const token = await AsyncStorage.getItem("@rotuscan_token");
+      const userId = await AsyncStorage.getItem("@usuario_id");
 
-  const salvarIntolerancias = async () => {
+      if (!ativo) return;
+
+      if (token && userId && !rascunhoCadastro.email) {
+        router.replace("/editar-perfil" as never);
+        return;
+      }
+
+      if (!rascunhoCadastro.email || !rascunhoCadastro.senha) {
+        router.replace("/cadastro" as never);
+        return;
+      }
+
+      setVerificandoAcesso(false);
+    };
+    checarFluxo();
+    return () => {
+      ativo = false;
+    };
+  }, [rascunhoCadastro.email, rascunhoCadastro.senha]);
+
+  const alternarSwitch = (
+    categoria: "gluten" | "lactose" | "amendoim",
+    novoEstado: boolean
+  ) => {
+    if (erroInline) setErroInline(null);
+
+    if (categoria === "gluten") {
+      setGlutenAtivo(novoEstado);
+    } else if (categoria === "lactose") {
+      setLactoseAtivo(novoEstado);
+    } else {
+      setAmendoimAtivo(novoEstado);
+    }
+  };
+
+  const handleToqueBotaoX = () => {
+    const temDadosPreenchidos = Boolean(
+      rascunhoCadastro.nome ||
+        rascunhoCadastro.email ||
+        rascunhoCadastro.senha ||
+        glutenAtivo ||
+        lactoseAtivo ||
+        amendoimAtivo
+    );
+
+    if (temDadosPreenchidos) {
+      setModalCancelarVisivel(true);
+    } else {
+      limparRascunhoCadastro();
+      router.replace("/login" as never);
+    }
+  };
+
+  const confirmarCancelamento = () => {
+    setModalCancelarVisivel(false);
+    limparRascunhoCadastro();
+    router.replace("/login" as never);
+  };
+
+  const concluirCadastro = async () => {
+    if (loading) return;
+    setErroInline(null);
+
+    const restricoesSelecionadas: string[] = [];
+    if (glutenAtivo) restricoesSelecionadas.push("gluten");
+    if (lactoseAtivo) restricoesSelecionadas.push("lactose");
+    if (amendoimAtivo) restricoesSelecionadas.push("amendoim");
+
+    if (restricoesSelecionadas.length === 0) {
+      setErroInline(
+        "Selecione ao menos uma intolerância para concluir o cadastro."
+      );
+      return;
+    }
+
     setLoading(true);
     try {
-      const restricoesSelecionadas: string[] = [];
-      if (glutenAtivo) restricoesSelecionadas.push("gluten");
-      if (lactoseAtivo) restricoesSelecionadas.push("lactose");
-      if (amendoimAtivo) restricoesSelecionadas.push("amendoim");
+      const response = await api.post("/auth/register", {
+        nome: rascunhoCadastro.nome.trim(),
+        email: rascunhoCadastro.email.trim().toLowerCase(),
+        senha: rascunhoCadastro.senha,
+        restricoes: restricoesSelecionadas,
+        niveisSensibilidade: {
+          gluten: glutenNivel,
+          lactose: lactoseNivel,
+          amendoim: amendoimNivel,
+        },
+      });
 
-      const maiorNivel = Math.max(
-        glutenAtivo ? glutenNivel : 0,
-        lactoseAtivo ? lactoseNivel : 0,
-        amendoimAtivo ? amendoimNivel : 0
-      );
-      const liberarPodeConter = maiorNivel === 0;
-
-      await AsyncStorage.setItem(
-        "@usuario_restricoes",
-        JSON.stringify(restricoesSelecionadas)
-      );
-      await AsyncStorage.setItem("@restricao_gluten", String(glutenAtivo));
-      await AsyncStorage.setItem("@restricao_lactose", String(lactoseAtivo));
-      await AsyncStorage.setItem("@restricao_amendoim", String(amendoimAtivo));
-      await AsyncStorage.setItem(
-        "@usuario_liberar_tracos",
-        String(liberarPodeConter)
-      );
-
-      const usuarioId = await AsyncStorage.getItem("@usuario_id");
-      if (usuarioId) {
-        await api.put("/users/restricoes", {
-          userId: usuarioId,
-          restricoes: restricoesSelecionadas,
-          liberarPodeConter,
-        }).catch(() => {});
-      }
+      const { token, usuario } = response.data;
+      await salvarSessaoUsuario(token, usuario);
+      limparRascunhoCadastro();
 
       router.replace("/home" as never);
-    } catch (error) {
-      Alert.alert("Aviso", "Preferências salvas localmente no dispositivo.");
-      router.replace("/home" as never);
+    } catch (error: any) {
+      setErroInline(extrairMensagemErro(error));
     } finally {
       setLoading(false);
     }
   };
 
-  if (!fontsLoaded) {
-    return null;
+  if (!fontsLoaded || verificandoAcesso) {
+    return (
+      <View style={styles.loadingScreen}>
+        <ActivityIndicator size="large" color="#006D37" />
+      </View>
+    );
   }
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" />
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <TouchableOpacity
+        style={[
+          styles.closeButtonFixed,
+          { top: Math.max(insets.top + 8, 14) },
+        ]}
+        activeOpacity={0.75}
+        onPress={handleToqueBotaoX}
+        accessibilityRole="button"
+        accessibilityLabel="Cancelar cadastro"
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <Feather name="x" size={22} color="#374151" />
+      </TouchableOpacity>
+
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
         <View style={styles.logoContainer}>
           <Text style={styles.logoRotu}>Rotu</Text>
           <Text style={styles.logoScan}>Scan</Text>
@@ -133,26 +215,41 @@ export default function IntoleranciasScreen() {
           <Text style={styles.title}>Selecione a sua intolerância</Text>
         </View>
 
+        {erroInline ? (
+          <View style={styles.erroBanner}>
+            <Ionicons name="alert-circle" size={16} color="#DC2626" />
+            <Text style={styles.erroBannerText}>{erroInline}</Text>
+          </View>
+        ) : null}
+
         <IntoleranciaCard
           image="gluten"
           iconBackground="#FFF7E3"
           title="Glúten"
-          description="Filtrar produtos que contenham trigo, cevada, centeio ou derivados para sua segurança celíaca."
+          description="Filtrar produtos que contenham trigo, centeio, cevada ou derivados para sua segurança celíaca."
           ativo={glutenAtivo}
-          setAtivo={setGlutenAtivo}
+          onToggle={(v) => alternarSwitch("gluten", v)}
           nivel={glutenNivel}
-          setNivel={setGlutenNivel}
+          setNivel={(n) => {
+            if (erroInline) setErroInline(null);
+            setGlutenAtivo(true);
+            setGlutenNivel(n);
+          }}
         />
 
         <IntoleranciaCard
           image="lactose"
           iconBackground="#FFF7E3"
           title="Lactose"
-          description="Identificar leite, soro de leite e traços de laticínios em alimentos processados e industrializados."
+          description="Identificar leite, soro de leite e traços de laticínios em alimentos processados e bebidas."
           ativo={lactoseAtivo}
-          setAtivo={setLactoseAtivo}
+          onToggle={(v) => alternarSwitch("lactose", v)}
           nivel={lactoseNivel}
-          setNivel={setLactoseNivel}
+          setNivel={(n) => {
+            if (erroInline) setErroInline(null);
+            setLactoseAtivo(true);
+            setLactoseNivel(n);
+          }}
         />
 
         <IntoleranciaCard
@@ -161,15 +258,19 @@ export default function IntoleranciasScreen() {
           title="Amendoim"
           description="Monitorar amendoim e seus derivados que podem causar reações de hipersensibilidade alimentar."
           ativo={amendoimAtivo}
-          setAtivo={setAmendoimAtivo}
+          onToggle={(v) => alternarSwitch("amendoim", v)}
           nivel={amendoimNivel}
-          setNivel={setAmendoimNivel}
+          setNivel={(n) => {
+            if (erroInline) setErroInline(null);
+            setAmendoimAtivo(true);
+            setAmendoimNivel(n);
+          }}
         />
 
         <TouchableOpacity
-          style={styles.finishButton}
+          style={[styles.finishButton, loading && { opacity: 0.7 }]}
           activeOpacity={0.85}
-          onPress={salvarIntolerancias}
+          onPress={concluirCadastro}
           disabled={loading}
         >
           {loading ? (
@@ -182,10 +283,23 @@ export default function IntoleranciasScreen() {
         <TouchableOpacity
           activeOpacity={0.85}
           onPress={() => router.back()}
+          disabled={loading}
+          style={styles.voltarTouch}
         >
           <Text style={styles.btnVoltar}>Voltar</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      <ConfirmModal
+        visible={modalCancelarVisivel}
+        title="Cancelar cadastro?"
+        message="Cancelar cadastro? Os dados preenchidos serão descartados."
+        confirmText="Descartar"
+        cancelText="Continuar"
+        destructive
+        onConfirm={confirmarCancelamento}
+        onCancel={() => setModalCancelarVisivel(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -196,9 +310,9 @@ type IntoleranciaCardProps = {
   title: string;
   description: string;
   ativo: boolean;
-  setAtivo: (value: boolean) => void;
-  nivel: number;
-  setNivel: (value: number) => void;
+  onToggle: (value: boolean) => void;
+  nivel: NivelSensibilidade;
+  setNivel: (value: NivelSensibilidade) => void;
 };
 
 function IntoleranciaCard({
@@ -207,28 +321,25 @@ function IntoleranciaCard({
   title,
   description,
   ativo,
-  setAtivo,
+  onToggle,
   nivel,
   setNivel,
 }: IntoleranciaCardProps) {
-  const niveis = ["Leve", "Moderado", "Grave"];
-
   return (
     <View style={styles.card}>
-      <View style={styles.cardHeader}>
+      <View style={styles.cardTopRow}>
         <View style={[styles.iconBox, { backgroundColor: iconBackground }]}>
           <Image source={iconImages[image]} style={styles.iconImage} />
         </View>
 
-        <View style={styles.cardInfo}>
-          <Text style={styles.cardTitle}>{title}</Text>
-          <Text style={styles.cardDescription}>{description}</Text>
-        </View>
-
         <TouchableOpacity
           activeOpacity={0.8}
-          onPress={() => setAtivo(!ativo)}
+          onPress={() => onToggle(!ativo)}
           style={[styles.switch, ativo && styles.switchActive]}
+          accessibilityRole="switch"
+          accessibilityState={{ checked: ativo }}
+          accessibilityLabel={`Ativar restrição de ${title}`}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
           <View
             style={[styles.switchCircle, ativo && styles.switchCircleActive]}
@@ -236,57 +347,72 @@ function IntoleranciaCard({
         </TouchableOpacity>
       </View>
 
+      <View style={styles.cardInfo}>
+        <Text style={styles.cardTitle}>{title}</Text>
+        <Text style={styles.cardDescription}>{description}</Text>
+      </View>
+
       <View style={styles.divider} />
 
-      <View style={styles.sensitivityHeader}>
-        <Text style={styles.sensitivityTitle}>Nível de Sensibilidade</Text>
-        <Text style={styles.currentLevel}>{niveis[nivel]}</Text>
-      </View>
-
-      <View style={styles.sliderContainer}>
-        <View style={styles.sliderBackground} />
-        <View
-          style={[
-            styles.sliderProgress,
-            { width: nivel === 0 ? "0%" : nivel === 1 ? "50%" : "100%" },
-          ]}
-        />
-        <View
-          style={[
-            styles.sliderDot,
-            { left: nivel === 0 ? 0 : nivel === 1 ? "50%" : "100%" },
-          ]}
-        />
-      </View>
-
-      <View style={styles.levelOptions}>
-        {niveis.map((item, index) => (
-          <TouchableOpacity
-            key={item}
-            activeOpacity={0.7}
-            onPress={() => setNivel(index)}
-          >
-            <Text
-              style={[
-                styles.levelText,
-                nivel === index && styles.levelTextActive,
-              ]}
-            >
-              {item}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+      <SensitivitySlider
+        nivel={nivel}
+        onChangeNivel={setNivel}
+        onRequestActivate={() => onToggle(true)}
+        ativo={ativo}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F8F9FA" },
-  scrollContent: { alignItems: "center", paddingTop: 16, paddingBottom: 25 },
-  logoContainer: { flexDirection: "row", alignItems: "center", justifyContent: "center", marginBottom: 12 },
-  logoRotu: { fontFamily: "Geist_700Bold", fontSize: 34, color: "#006D37", letterSpacing: -1.2 },
-  logoScan: { fontFamily: "Geist_700Bold", fontSize: 34, color: "#F59E0B", letterSpacing: -0.6 },
+  loadingScreen: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F8F9FA",
+  },
+  closeButtonFixed: {
+    position: "absolute",
+    right: 18,
+    zIndex: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  scrollContent: {
+    alignItems: "center",
+    paddingTop: 16,
+    paddingBottom: 30,
+  },
+  logoContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  logoRotu: {
+    fontFamily: "Geist_700Bold",
+    fontSize: 34,
+    color: "#006D37",
+    letterSpacing: -1.2,
+  },
+  logoScan: {
+    fontFamily: "Geist_700Bold",
+    fontSize: 34,
+    color: "#F59E0B",
+    letterSpacing: -0.6,
+  },
   titleBox: {
     width: Math.min(width - 64, 420),
     height: 44,
@@ -298,61 +424,115 @@ const styles = StyleSheet.create({
     marginBottom: 9,
     backgroundColor: "#FFFFFF",
   },
-  title: { fontFamily: "Geist_600SemiBold", fontSize: 17.5, color: "#000000" },
+  title: {
+    fontFamily: "Geist_600SemiBold",
+    fontSize: 17.5,
+    color: "#000000",
+  },
+  erroBanner: {
+    width: Math.min(width - 64, 420),
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    borderRadius: 9,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 10,
+  },
+  erroBannerText: {
+    flex: 1,
+    fontFamily: "Geist_500Medium",
+    fontSize: 12,
+    color: "#DC2626",
+  },
   card: {
     width: Math.min(width - 64, 420),
-    minHeight: 229,
     backgroundColor: "#FFFFFF",
     borderWidth: 1,
     borderColor: "#006D37",
     borderRadius: 9,
     paddingHorizontal: 16,
     paddingTop: 14,
-    paddingBottom: 12,
+    paddingBottom: 14,
     marginBottom: 10,
-    position: "relative",
   },
-  cardHeader: { flexDirection: "column", alignItems: "flex-start", minHeight: 110, position: "relative" },
-  iconBox: { width: 34, height: 34, borderRadius: 7, alignItems: "center", justifyContent: "center", marginBottom: 7 },
+  cardTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 7,
+  },
+  iconBox: {
+    width: 34,
+    height: 34,
+    borderRadius: 7,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   iconImage: { width: 21, height: 21, resizeMode: "contain" },
-  cardInfo: { width: "100%", paddingRight: 25 },
-  cardTitle: { fontFamily: "Geist_700Bold", fontSize: 17, color: "#191C1D", marginBottom: 5 },
-  cardDescription: { fontFamily: "Geist_400Regular", fontSize: 14, lineHeight: 19, color: "#191c1d9a", width: "100%" },
+  cardInfo: { width: "100%" },
+  cardTitle: {
+    fontFamily: "Geist_700Bold",
+    fontSize: 17,
+    color: "#191C1D",
+    marginBottom: 5,
+  },
+  cardDescription: {
+    fontFamily: "Geist_400Regular",
+    fontSize: 13.5,
+    lineHeight: 19,
+    color: "#191c1d9a",
+    width: "100%",
+  },
   switch: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    width: 31,
-    height: 16,
-    borderRadius: 10,
+    width: 40,
+    height: 22,
+    borderRadius: 11,
     backgroundColor: "#DDE1E4",
     padding: 2,
     justifyContent: "center",
   },
   switchActive: { backgroundColor: "#24C95B" },
-  switchCircle: { width: 12, height: 12, borderRadius: 6, backgroundColor: "#FFFFFF", alignSelf: "flex-start" },
+  switchCircle: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: "#FFFFFF",
+    alignSelf: "flex-start",
+  },
   switchCircleActive: { alignSelf: "flex-end" },
-  divider: { width: "100%", height: 1, backgroundColor: "#E5E7EB", marginTop: 10, marginBottom: 15 },
-  sensitivityHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", width: "100%", marginBottom: 8 },
-  sensitivityTitle: { fontFamily: "Geist_600SemiBold", fontSize: 12, color: "#3D4A3E" },
-  currentLevel: { fontFamily: "Geist_700Bold", fontSize: 10, color: "#009B67" },
-  sliderContainer: { width: "100%", height: 10, justifyContent: "center", position: "relative" },
-  sliderBackground: { position: "absolute", left: 0, right: 0, height: 4, borderRadius: 4, backgroundColor: "#DDE2E6" },
-  sliderProgress: { position: "absolute", left: 0, height: 4, borderRadius: 4, backgroundColor: "#20B86A" },
-  sliderDot: { position: "absolute", width: 7, height: 7, borderRadius: 4, marginLeft: -3.5, backgroundColor: "#20B86A" },
-  levelOptions: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", width: "100%", marginTop: 3 },
-  levelText: { fontFamily: "Geist_400Regular", fontSize: 9, color: "#737D87" },
-  levelTextActive: { fontFamily: "Geist_600SemiBold", color: "#008B5E" },
+  divider: {
+    width: "100%",
+    height: 1,
+    backgroundColor: "#E5E7EB",
+    marginTop: 10,
+    marginBottom: 12,
+  },
   finishButton: {
     width: Math.min(width - 64, 420),
-    height: 42,
+    height: 46,
     backgroundColor: "#22C55E",
-    borderRadius: 7,
+    borderRadius: 9,
     alignItems: "center",
     justifyContent: "center",
     marginTop: 4,
     elevation: 2,
   },
-  finishButtonText: { fontFamily: "Geist_600SemiBold", fontSize: 13, color: "#FFFFFF" },
-  btnVoltar: { fontFamily: "Geist_600SemiBold", fontSize: 12, color: "#22C55E", marginTop: 10 },
+  finishButtonText: {
+    fontFamily: "Geist_600SemiBold",
+    fontSize: 14,
+    color: "#FFFFFF",
+  },
+  voltarTouch: {
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+  },
+  btnVoltar: {
+    fontFamily: "Geist_600SemiBold",
+    fontSize: 12.5,
+    color: "#22C55E",
+  },
 });

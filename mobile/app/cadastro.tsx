@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import {
   Dimensions,
   ImageBackground,
@@ -8,8 +8,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-  Alert,
-  ActivityIndicator,
+  Animated,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
@@ -21,15 +20,16 @@ import {
 import { useFonts } from "@expo-google-fonts/geist/useFonts";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-
-import api from "../services/api";
+import { useAuth } from "../context/AuthContext";
 
 const { width } = Dimensions.get("window");
 const backgroundImage = require("../assets/images/Fundo.png");
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+
 export default function CadastroScreen() {
   const router = useRouter();
+  const { rascunhoCadastro, setRascunhoCadastro } = useAuth();
 
   const [fontsLoaded] = useFonts({
     Geist_400Regular,
@@ -38,53 +38,107 @@ export default function CadastroScreen() {
     Geist_700Bold,
   });
 
-  const [nome, setNome] = useState("");
-  const [email, setEmail] = useState("");
-  const [senha, setSenha] = useState("");
-  const [repetirSenha, setRepetirSenha] = useState("");
   const [mostrarSenha, setMostrarSenha] = useState(false);
   const [mostrarRepetirSenha, setMostrarRepetirSenha] = useState(false);
-  const [loading, setLoading] = useState(false);
 
-  const handleCadastro = async () => {
-    if (!nome.trim() || !email.trim() || !senha || !repetirSenha) {
-      return Alert.alert("Atenção", "Por favor, preencha todos os campos.");
+  const [erroNome, setErroNome] = useState<string | null>(null);
+  const [erroEmail, setErroEmail] = useState<string | null>(null);
+  const [erroSenha, setErroSenha] = useState<string | null>(null);
+  const [erroRepetirSenha, setErroRepetirSenha] = useState<string | null>(null);
+
+  const shakeAnim = useRef(new Animated.Value(0)).current;
+
+  const dispararShake = () => {
+    Animated.sequence([
+      Animated.timing(shakeAnim, {
+        toValue: 9,
+        duration: 55,
+        useNativeDriver: true,
+      }),
+      Animated.timing(shakeAnim, {
+        toValue: -9,
+        duration: 55,
+        useNativeDriver: true,
+      }),
+      Animated.timing(shakeAnim, {
+        toValue: 6,
+        duration: 55,
+        useNativeDriver: true,
+      }),
+      Animated.timing(shakeAnim, {
+        toValue: 0,
+        duration: 55,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  const atualizarCampo = (
+    campo: keyof typeof rascunhoCadastro,
+    valor: string
+  ) => {
+    if (campo === "nome" && erroNome) setErroNome(null);
+    if (campo === "email" && erroEmail) setErroEmail(null);
+    if (campo === "senha" && erroSenha) setErroSenha(null);
+    if (campo === "repetirSenha" && erroRepetirSenha) setErroRepetirSenha(null);
+    setRascunhoCadastro((prev) => ({ ...prev, [campo]: valor }));
+  };
+
+  const handleProximo = () => {
+    setErroNome(null);
+    setErroEmail(null);
+    setErroSenha(null);
+    setErroRepetirSenha(null);
+
+    const nomeLimpo = rascunhoCadastro.nome.trim();
+    const emailLimpo = rascunhoCadastro.email.trim().toLowerCase();
+    const { senha, repetirSenha } = rascunhoCadastro;
+
+    let invalido = false;
+
+    if (!nomeLimpo) {
+      setErroNome("Preencha seu nome completo");
+      invalido = true;
     }
 
-    if (senha !== repetirSenha) {
-      return Alert.alert("Atenção", "As senhas não coincidem!");
+    if (!emailLimpo) {
+      setErroEmail("Preencha seu e-mail");
+      invalido = true;
+    } else if (!EMAIL_REGEX.test(emailLimpo)) {
+      setErroEmail("E-mail inválido");
+      invalido = true;
     }
 
-    setLoading(true);
-    try {
-      const response = await api.post("/auth/register", {
-        nome,
-        email,
-        senha,
-      });
-
-      const { token, usuario } = response.data;
-
-      // Salva a sessão JWT imediatamente para permitir salvar as restrições na próxima tela
-      await AsyncStorage.setItem("@rotuscan_token", token);
-      await AsyncStorage.setItem("@usuario_id", usuario.id);
-      await AsyncStorage.setItem("@usuario_nome", usuario.nome);
-      await AsyncStorage.setItem("@usuario_email", usuario.email);
-
-      // Redireciona para a seleção de intolerâncias do colega (ou home caso não exista ainda)
-      router.replace("/selectIntolerancia");
-    } catch (error: any) {
-      if (error.response) {
-        Alert.alert("Erro no Cadastro", error.response.data.erro || "Falha ao criar conta.");
-      } else {
-        Alert.alert(
-          "Erro de Rede",
-          "Não foi possível conectar ao servidor. Verifique o IP e o Wi-Fi."
-        );
-      }
-    } finally {
-      setLoading(false);
+    if (!senha) {
+      setErroSenha("Preencha sua senha");
+      invalido = true;
+    } else if (senha.length < 6) {
+      setErroSenha("A senha deve ter pelo menos 6 caracteres");
+      invalido = true;
     }
+
+    if (!repetirSenha) {
+      setErroRepetirSenha("Repita sua senha");
+      invalido = true;
+    } else if (senha && senha !== repetirSenha) {
+      setErroRepetirSenha("As senhas não coincidem");
+      invalido = true;
+    }
+
+    if (invalido) {
+      dispararShake();
+      return;
+    }
+
+    // Mantém os dados apenas em memória (AuthContext) — a senha nunca vai para o AsyncStorage
+    setRascunhoCadastro({
+      nome: nomeLimpo,
+      email: emailLimpo,
+      senha,
+      repetirSenha,
+    });
+
+    router.push("/selectIntolerancia" as never);
   };
 
   if (!fontsLoaded) {
@@ -105,18 +159,29 @@ export default function CadastroScreen() {
           <Text style={styles.logoScan}>Scan</Text>
         </View>
 
-        <View style={styles.loginCard}>
+        <Animated.View
+          style={[
+            styles.loginCard,
+            { transform: [{ translateX: shakeAnim }] },
+          ]}
+        >
+          {/* NOME */}
           <Text style={styles.label}>Usuário (Nome completo)</Text>
-          <View style={styles.inputContainer}>
+          <View
+            style={[
+              styles.inputContainer,
+              erroNome ? styles.inputContainerError : null,
+            ]}
+          >
             <Ionicons
               name="person-outline"
               size={16}
-              color="#737D8D"
+              color={erroNome ? "#EF4444" : "#737D8D"}
               style={styles.inputIcon}
             />
             <TextInput
-              value={nome}
-              onChangeText={setNome}
+              value={rascunhoCadastro.nome}
+              onChangeText={(txt) => atualizarCampo("nome", txt)}
               placeholder="Digite seu nome"
               placeholderTextColor="#9EA5B1"
               autoCapitalize="words"
@@ -124,18 +189,30 @@ export default function CadastroScreen() {
               style={styles.input}
             />
           </View>
+          {erroNome ? (
+            <View style={styles.fieldErrorRow}>
+              <Ionicons name="alert-circle" size={13} color="#EF4444" />
+              <Text style={styles.fieldErrorText}>{erroNome}</Text>
+            </View>
+          ) : null}
 
-          <Text style={styles.label}>E-mail</Text>
-          <View style={styles.inputContainer}>
+          {/* E-MAIL */}
+          <Text style={[styles.label, styles.fieldLabelSpacing]}>E-mail</Text>
+          <View
+            style={[
+              styles.inputContainer,
+              erroEmail ? styles.inputContainerError : null,
+            ]}
+          >
             <Ionicons
               name="mail-outline"
               size={16}
-              color="#737D8D"
+              color={erroEmail ? "#EF4444" : "#737D8D"}
               style={styles.inputIcon}
             />
             <TextInput
-              value={email}
-              onChangeText={setEmail}
+              value={rascunhoCadastro.email}
+              onChangeText={(txt) => atualizarCampo("email", txt)}
               placeholder="seunome@email.com"
               placeholderTextColor="#9EA5B1"
               keyboardType="email-address"
@@ -144,19 +221,31 @@ export default function CadastroScreen() {
               style={styles.input}
             />
           </View>
+          {erroEmail ? (
+            <View style={styles.fieldErrorRow}>
+              <Ionicons name="alert-circle" size={13} color="#EF4444" />
+              <Text style={styles.fieldErrorText}>{erroEmail}</Text>
+            </View>
+          ) : null}
 
-          <Text style={styles.label}>Senha</Text>
-          <View style={styles.inputContainer}>
+          {/* SENHA */}
+          <Text style={[styles.label, styles.fieldLabelSpacing]}>Senha</Text>
+          <View
+            style={[
+              styles.inputContainer,
+              erroSenha ? styles.inputContainerError : null,
+            ]}
+          >
             <Ionicons
               name="lock-closed-outline"
               size={16}
-              color="#737D8D"
+              color={erroSenha ? "#EF4444" : "#737D8D"}
               style={styles.inputIcon}
             />
             <TextInput
-              value={senha}
-              onChangeText={setSenha}
-              placeholder="Crie uma senha"
+              value={rascunhoCadastro.senha}
+              onChangeText={(txt) => atualizarCampo("senha", txt)}
+              placeholder="Crie uma senha (mín. 6 caracteres)"
               placeholderTextColor="#9EA5B1"
               secureTextEntry={!mostrarSenha}
               autoCapitalize="none"
@@ -175,18 +264,32 @@ export default function CadastroScreen() {
               />
             </TouchableOpacity>
           </View>
+          {erroSenha ? (
+            <View style={styles.fieldErrorRow}>
+              <Ionicons name="alert-circle" size={13} color="#EF4444" />
+              <Text style={styles.fieldErrorText}>{erroSenha}</Text>
+            </View>
+          ) : null}
 
-          <Text style={styles.label}>Repita a senha</Text>
-          <View style={styles.inputContainer}>
+          {/* REPITA A SENHA */}
+          <Text style={[styles.label, styles.fieldLabelSpacing]}>
+            Repita a senha
+          </Text>
+          <View
+            style={[
+              styles.inputContainer,
+              erroRepetirSenha ? styles.inputContainerError : null,
+            ]}
+          >
             <Ionicons
               name="lock-closed-outline"
               size={16}
-              color="#737D8D"
+              color={erroRepetirSenha ? "#EF4444" : "#737D8D"}
               style={styles.inputIcon}
             />
             <TextInput
-              value={repetirSenha}
-              onChangeText={setRepetirSenha}
+              value={rascunhoCadastro.repetirSenha}
+              onChangeText={(txt) => atualizarCampo("repetirSenha", txt)}
               placeholder="Repita a senha"
               placeholderTextColor="#9EA5B1"
               secureTextEntry={!mostrarRepetirSenha}
@@ -206,38 +309,37 @@ export default function CadastroScreen() {
               />
             </TouchableOpacity>
           </View>
+          {erroRepetirSenha ? (
+            <View style={styles.fieldErrorRow}>
+              <Ionicons name="alert-circle" size={13} color="#EF4444" />
+              <Text style={styles.fieldErrorText}>{erroRepetirSenha}</Text>
+            </View>
+          ) : null}
 
           <TouchableOpacity
             style={styles.loginButton}
             activeOpacity={0.85}
-            onPress={handleCadastro}
-            disabled={loading}
+            onPress={handleProximo}
           >
-            {loading ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
-            ) : (
-              <>
-                <Text style={styles.loginButtonText}>Próximo</Text>
-                <Ionicons
-                  name="arrow-forward"
-                  size={16}
-                  color="#FFFFFF"
-                  style={styles.arrow}
-                />
-              </>
-            )}
+            <Text style={styles.loginButtonText}>Próximo</Text>
+            <Ionicons
+              name="arrow-forward"
+              size={16}
+              color="#FFFFFF"
+              style={styles.arrow}
+            />
           </TouchableOpacity>
 
           <View style={styles.registerContainer}>
             <Text style={styles.registerText}>Já tem conta? </Text>
             <TouchableOpacity
               activeOpacity={0.7}
-              onPress={() => router.replace("/")}
+              onPress={() => router.replace("/login" as never)}
             >
               <Text style={styles.registerLink}>Login</Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </Animated.View>
       </SafeAreaView>
     </ImageBackground>
   );
@@ -255,7 +357,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   logoContainer: {
-    marginTop: 95,
+    marginTop: 72,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -271,13 +373,14 @@ const styles = StyleSheet.create({
     color: "#F8A018",
   },
   loginCard: {
-    marginTop: 15,
+    marginTop: 14,
     width: width * 0.9,
+    maxWidth: 420,
     backgroundColor: "#FFFFFF",
     borderRadius: 22,
     paddingHorizontal: 20,
-    paddingTop: 24,
-    paddingBottom: 24,
+    paddingTop: 22,
+    paddingBottom: 22,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.08,
@@ -290,6 +393,9 @@ const styles = StyleSheet.create({
     color: "#374151",
     marginBottom: 6,
   },
+  fieldLabelSpacing: {
+    marginTop: 12,
+  },
   inputContainer: {
     width: "100%",
     height: 46,
@@ -300,7 +406,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 14,
     backgroundColor: "#FFFFFF",
-    marginBottom: 14,
+  },
+  inputContainerError: {
+    borderColor: "#EF4444",
+    backgroundColor: "#FEF2F2",
+  },
+  fieldErrorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginTop: 4,
+    paddingHorizontal: 6,
+  },
+  fieldErrorText: {
+    fontFamily: "Geist_500Medium",
+    fontSize: 11.5,
+    color: "#EF4444",
   },
   inputIcon: {
     marginRight: 8,
@@ -323,7 +444,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     flexDirection: "row",
-    marginTop: 6,
+    marginTop: 18,
     marginBottom: 18,
   },
   loginButtonText: {

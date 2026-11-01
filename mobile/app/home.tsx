@@ -1,5 +1,4 @@
 import React, { useState, useCallback } from "react";
-
 import {
   Geist_400Regular,
   Geist_500Medium,
@@ -7,11 +6,15 @@ import {
   Geist_700Bold,
 } from "@expo-google-fonts/geist";
 import { useFonts } from "@expo-google-fonts/geist/useFonts";
-import { Feather, Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import {
+  Feather,
+  Ionicons,
+  MaterialCommunityIcons,
+} from "@expo/vector-icons";
 import { router, useFocusEffect } from "expo-router";
-
 import {
   Image,
+  RefreshControl,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -19,64 +22,32 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import TabBar from "../components/TabBar/indexTab";
 import AppHeader from "../components/Header/AppHeader";
+import ScanThumb from "../components/ScanThumb";
+import api, { extrairMensagemErro } from "../services/api";
+import { useAuth } from "../context/AuthContext";
+import { formatarResumoAlergicos, obterDicaDoDia } from "../utils/datas";
 
-type StatusProduto = "seguro" | "risco";
-
-type ItemCurtido = {
+type ItemHistoricoAPI = {
   id: string;
-  nome: string;
-  status: StatusProduto;
-  imagem?: string;
+  nomeProduto: string;
+  nomeAutomatico?: boolean;
+  marcaPeso?: string | null;
+  veredito: "SEGURO" | "PERIGOSO";
+  alergicosDetectados?: {
+    categoria: string;
+    tipo: "CONTEM" | "TRACOS";
+    termos?: string[];
+  }[];
+  curtido: boolean;
+  imagemUrl?: string | null;
+  imagemDemo?: string | null;
+  createdAt?: string;
 };
-
-type ItemEscaneado = {
-  id: string;
-  nome: string;
-  detalhe: string;
-  status: StatusProduto;
-  imagem?: string;
-};
-
-const ITENS_CURTIDOS: ItemCurtido[] = [
-  {
-    id: "1",
-    nome: "Leite Silk",
-    status: "seguro",
-  },
-  {
-    id: "2",
-    nome: "Quinoa Real",
-    status: "seguro",
-  },
-  {
-    id: "3",
-    nome: "Quinoa Real",
-    status: "seguro",
-  },
-];
-
-const ITENS_ESCANEADOS: ItemEscaneado[] = [
-  {
-    id: "1",
-    nome: "Leite de Amêndoas Silk",
-    detalhe: "100% Seguro",
-    status: "seguro",
-  },
-  {
-    id: "2",
-    nome: "Chocolate Branco",
-    detalhe: "Contém Lactose",
-    status: "risco",
-    imagem:
-      "https://images.unsplash.com/photo-1549007994-cb92caebd54b?w=200",
-  },
-];
 
 export default function HomeScreen() {
   const [fontsLoaded] = useFonts({
@@ -86,53 +57,145 @@ export default function HomeScreen() {
     Geist_700Bold,
   });
 
-  // Estado responsável por abrir e fechar o Drawer
-  const [drawerVisible, setDrawerVisible] = useState(false);
+  const { salvarSessaoUsuario } = useAuth();
 
-  const [nomeUsuario, setNomeUsuario] = useState("Endrew");
-  const [restricoesAtivas, setRestricoesAtivas] = useState<string[]>([
-    "gluten",
-    "lactose",
-  ]);
-  const diasProgresso = 12;
-  const escaneamentosSeguros = 45;
+  const [nomeUsuario, setNomeUsuario] = useState("Usuário");
+  const [restricoesAtivas, setRestricoesAtivas] = useState<string[]>([]);
+  const [diasConsecutivos, setDiasConsecutivos] = useState(0);
+  const [escaneamentosSegurosMes, setEscaneamentosSegurosMes] = useState(0);
+  const [metaMensal, setMetaMensal] = useState(50);
+
+  const [itensCurtidos, setItensCurtidos] = useState<ItemHistoricoAPI[]>([]);
+  const [recemEscaneados, setRecemEscaneados] = useState<ItemHistoricoAPI[]>(
+    []
+  );
+
+  const [refreshing, setRefreshing] = useState(false);
+  const [erroInline, setErroInline] = useState<string | null>(null);
+
+  const dicaDoDia = obterDicaDoDia();
+
+  const carregarTudo = useCallback(
+    async (isRefresh = false) => {
+      if (isRefresh) setRefreshing(true);
+      setErroInline(null);
+
+      try {
+        // Hidrata cache local primeiro para resposta visual imediata
+        const [nomeSalvo, restricoesJson] = await Promise.all([
+          AsyncStorage.getItem("@usuario_nome"),
+          AsyncStorage.getItem("@usuario_restricoes"),
+        ]);
+
+        if (nomeSalvo && nomeSalvo.trim()) {
+          setNomeUsuario(nomeSalvo.trim().split(" ")[0]);
+        }
+        if (restricoesJson) {
+          const parsed: string[] = JSON.parse(restricoesJson);
+          setRestricoesAtivas(parsed.map((r) => r.toLowerCase()));
+        }
+
+        // Busca dados reais do MongoDB em paralelo
+        const [resPerfil, resCurtidos, resRecentes] = await Promise.all([
+          api.get("/users/perfil"),
+          api.get("/users/historico?curtido=true&limit=10"),
+          api.get("/users/historico?limit=5"),
+        ]);
+
+        const u = resPerfil.data?.usuario || resPerfil.data;
+        const st = resPerfil.data?.stats || {};
+
+        if (u?.nome) {
+          setNomeUsuario(String(u.nome).trim().split(" ")[0]);
+        }
+        if (Array.isArray(u?.restricoes)) {
+          setRestricoesAtivas(
+            u.restricoes.map((r: string) => r.toLowerCase())
+          );
+        }
+
+        setDiasConsecutivos(Number(st.diasConsecutivos || 0));
+        setEscaneamentosSegurosMes(Number(st.escaneamentosSegurosMes || 0));
+        setMetaMensal(Number(st.metaMensal || 50));
+
+        setItensCurtidos(
+          Array.isArray(resCurtidos.data?.itens) ? resCurtidos.data.itens : []
+        );
+        setRecemEscaneados(
+          Array.isArray(resRecentes.data?.itens) ? resRecentes.data.itens : []
+        );
+
+        if (u?.id || u?._id) {
+          await salvarSessaoUsuario(null, {
+            id: String(u.id || u._id),
+            nome: u.nome || "",
+            email: u.email || "",
+            avatar: u.avatar || null,
+            restricoes: u.restricoes || [],
+            niveisSensibilidade: u.niveisSensibilidade || {
+              gluten: 1,
+              lactose: 1,
+              amendoim: 1,
+            },
+          });
+        }
+      } catch (error: any) {
+        setErroInline(extrairMensagemErro(error));
+      } finally {
+        setRefreshing(false);
+      }
+    },
+    [salvarSessaoUsuario]
+  );
 
   useFocusEffect(
     useCallback(() => {
-      const carregarDados = async () => {
-        const nomeSalvo = await AsyncStorage.getItem("@usuario_nome");
-        if (nomeSalvo && nomeSalvo.trim()) {
-          // Usa o primeiro nome na saudação ("Olá Endrew!")
-          setNomeUsuario(nomeSalvo.trim().split(" ")[0]);
-        }
-
-        const restricoesJson = await AsyncStorage.getItem("@usuario_restricoes");
-        if (restricoesJson) {
-          const parsed: string[] = JSON.parse(restricoesJson);
-          if (parsed.length > 0) {
-            setRestricoesAtivas(parsed.map((r) => r.toLowerCase()));
-          }
-        }
-      };
-      carregarDados();
-    }, [])
+      carregarTudo(false);
+    }, [carregarTudo])
   );
+
+  const abrirResultado = (id: string) => {
+    router.push({
+      pathname: "/resultado" as any,
+      params: { id },
+    });
+  };
 
   if (!fontsLoaded) {
     return null;
   }
 
+  const porcentagemMeta = Math.min(
+    100,
+    Math.round((escaneamentosSegurosMes / Math.max(1, metaMensal)) * 100)
+  );
+
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <StatusBar barStyle="dark-content" />
 
-      <AppHeader onMenuPress={() => setDrawerVisible(true)} />
+      <AppHeader />
 
       {/* CONTEÚDO PRINCIPAL */}
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => carregarTudo(true)}
+            colors={["#006D37"]}
+            tintColor="#006D37"
+          />
+        }
       >
+        {erroInline ? (
+          <View style={styles.erroBanner}>
+            <Ionicons name="alert-circle" size={16} color="#DC2626" />
+            <Text style={styles.erroBannerText}>{erroInline}</Text>
+          </View>
+        ) : null}
+
         {/* SAUDAÇÃO */}
         <Text style={styles.greeting}>Olá {nomeUsuario}!</Text>
 
@@ -173,8 +236,8 @@ export default function HomeScreen() {
           <TouchableOpacity
             activeOpacity={0.8}
             style={styles.addChipButton}
-            onPress={() => router.push("/selectIntolerancia" as never)}
-            accessibilityLabel="Adicionar intolerância"
+            onPress={() => router.push("/editar-perfil" as never)}
+            accessibilityLabel="Editar intolerâncias"
             accessibilityRole="button"
           >
             <Feather name="plus" size={16} color="#006D37" />
@@ -185,20 +248,36 @@ export default function HomeScreen() {
         <View style={styles.progressCard}>
           <View style={styles.progressHeader}>
             <Text style={styles.progressTitle}>PROGRESSO DE SAÚDE</Text>
-            <Text style={styles.progressDias}>{diasProgresso} Dias</Text>
+            <Text style={styles.progressDias}>
+              {diasConsecutivos} {diasConsecutivos === 1 ? "Dia" : "Dias"}
+            </Text>
           </View>
 
           <View style={styles.progressBarBackground}>
-            <View style={[styles.progressBarFill, { width: "75%" }]} />
+            <View
+              style={[
+                styles.progressBarFill,
+                { width: `${porcentagemMeta}%` },
+              ]}
+            />
           </View>
 
-          <Text style={styles.progressDescription}>
-            Você realizou{" "}
-            <Text style={styles.boldText}>
-              {escaneamentosSeguros} escaneamentos seguros
-            </Text>{" "}
-            este mês. Continue assim!
-          </Text>
+          {escaneamentosSegurosMes > 0 ? (
+            <Text style={styles.progressDescription}>
+              Você realizou{" "}
+              <Text style={styles.boldText}>
+                {escaneamentosSegurosMes} escaneamentos seguros
+              </Text>{" "}
+              este mês. Continue assim!
+            </Text>
+          ) : (
+            <Text style={styles.progressDescription}>
+              Você ainda não realizou escaneamentos seguros este mês.{" "}
+              <Text style={styles.boldText}>
+                Escaneie seu primeiro rótulo agora!
+              </Text>
+            </Text>
+          )}
         </View>
 
         {/* BOTÃO ESCANEAR PRODUTO */}
@@ -240,66 +319,73 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
-        <ScrollView
-          horizontal
-          style={styles.curtidosScroll}
-          contentContainerStyle={styles.curtidosRow}
-          showsHorizontalScrollIndicator={false}
-          nestedScrollEnabled
-          directionalLockEnabled
-          bounces={false}
-          alwaysBounceHorizontal={false}
-        >
-          {ITENS_CURTIDOS.map((item) => (
-            <View key={item.id} style={styles.curtidoCard}>
-              <View style={styles.curtidoImageBox}>
-                {item.imagem ? (
-                  <Image
-                    source={{ uri: item.imagem }}
-                    style={styles.curtidoImage}
-                    resizeMode="cover"
-                  />
-                ) : (
-                  <Feather
-                    name="package"
-                    size={25}
-                    color="#AAB2B8"
-                  />
-                )}
+        {itensCurtidos.length > 0 ? (
+          <ScrollView
+            horizontal
+            style={styles.curtidosScroll}
+            contentContainerStyle={styles.curtidosRow}
+            showsHorizontalScrollIndicator={false}
+            nestedScrollEnabled
+            directionalLockEnabled
+            bounces={false}
+            alwaysBounceHorizontal={false}
+          >
+            {itensCurtidos.map((item) => {
+              const isSeguro = item.veredito === "SEGURO";
+              const catPrincipal =
+                item.alergicosDetectados?.[0]?.categoria || null;
 
-                <View style={styles.heartIcon}>
-                  <Ionicons
-                    name="heart"
-                    size={12}
-                    color="#DC2626"
-                  />
-                </View>
-              </View>
+              return (
+                <TouchableOpacity
+                  key={item.id}
+                  style={styles.curtidoCard}
+                  activeOpacity={0.8}
+                  onPress={() => abrirResultado(item.id)}
+                >
+                  <View style={styles.curtidoImageBox}>
+                    <ScanThumb
+                      imagemUrl={item.imagemUrl}
+                      imagemDemo={item.imagemDemo}
+                      categoriaPrincipal={catPrincipal}
+                      style={styles.curtidoImage}
+                      iconSize={24}
+                    />
 
-              <Text style={styles.curtidoNome} numberOfLines={2}>
-                {item.nome}
-              </Text>
+                    <View style={styles.heartIcon}>
+                      <Ionicons name="heart" size={12} color="#DC2626" />
+                    </View>
+                  </View>
 
-              <Text
-                style={[
-                  styles.statusSimpleText,
-                  {
-                    color:
-                      item.status === "seguro" ? "#15803D" : "#DC2626",
-                  },
-                ]}
-              >
-                {item.status === "seguro" ? "Seguro" : "Risco"}
-              </Text>
-            </View>
-          ))}
-        </ScrollView>
+                  <Text style={styles.curtidoNome} numberOfLines={2}>
+                    {item.nomeProduto}
+                  </Text>
+
+                  <Text
+                    style={[
+                      styles.statusSimpleText,
+                      {
+                        color: isSeguro ? "#15803D" : "#DC2626",
+                      },
+                    ]}
+                  >
+                    {isSeguro ? "Seguro" : "Risco"}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        ) : (
+          <View style={styles.emptyBox}>
+            <Ionicons name="heart-outline" size={22} color="#9CA3AF" />
+            <Text style={styles.emptyBoxText}>
+              Seus produtos favoritados aparecerão aqui.
+            </Text>
+          </View>
+        )}
 
         {/* RECÉM ESCANEADOS */}
-        <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionHeaderTitle}>
-            Recém Escaneados
-          </Text>
+        <View style={[styles.sectionHeaderRow, { marginTop: 18 }]}>
+          <Text style={styles.sectionHeaderTitle}>Recém Escaneados</Text>
 
           <TouchableOpacity
             activeOpacity={0.7}
@@ -309,66 +395,95 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
 
-        {ITENS_ESCANEADOS.map((item) => {
-          const isSeguro = item.status === "seguro";
+        {recemEscaneados.length > 0 ? (
+          recemEscaneados.map((item) => {
+            const isSeguro = item.veredito === "SEGURO";
+            const detalheTexto = formatarResumoAlergicos(
+              item.veredito,
+              item.alergicosDetectados
+            );
+            const catPrincipal =
+              item.alergicosDetectados?.[0]?.categoria || null;
 
-          return (
-            <View key={item.id} style={styles.escaneadoRow}>
-              {item.imagem ? (
-                <Image
-                  source={{ uri: item.imagem }}
-                  style={styles.escaneadoImage}
-                  resizeMode="cover"
+            return (
+              <TouchableOpacity
+                key={item.id}
+                style={styles.escaneadoRow}
+                activeOpacity={0.8}
+                onPress={() => abrirResultado(item.id)}
+              >
+                <ScanThumb
+                  imagemUrl={item.imagemUrl}
+                  imagemDemo={item.imagemDemo}
+                  categoriaPrincipal={catPrincipal}
+                  style={styles.escaneadoImagePlaceholder}
+                  iconSize={20}
                 />
-              ) : (
-                <View style={styles.escaneadoImagePlaceholder}>
-                  <Feather
-                    name="package"
-                    size={20}
-                    color="#AAB2B8"
-                  />
-                </View>
-              )}
 
-              <View style={styles.escaneadoInfo}>
-                <Text style={styles.escaneadoNome}>
-                  {item.nome}
-                </Text>
-
-                <View style={styles.escaneadoDetalheRow}>
-                  {isSeguro ? (
-                    <Ionicons
-                      name="checkmark-circle"
-                      size={13}
-                      color="#16A34A"
-                      style={{ marginRight: 4 }}
-                    />
-                  ) : (
-                    <Ionicons
-                      name="warning"
-                      size={13}
-                      color="#DC2626"
-                      style={{ marginRight: 4 }}
-                    />
-                  )}
-
-                  <Text
-                    style={[
-                      styles.escaneadoDetalhe,
-                      {
-                        color: isSeguro ? "#16A34A" : "#DC2626",
-                      },
-                    ]}
-                  >
-                    {item.detalhe}
+                <View style={styles.escaneadoInfo}>
+                  <Text style={styles.escaneadoNome} numberOfLines={1}>
+                    {item.nomeProduto}
                   </Text>
-                </View>
-              </View>
 
-              <StatusBadge status={item.status} />
-            </View>
-          );
-        })}
+                  <View style={styles.escaneadoDetalheRow}>
+                    {isSeguro ? (
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={13}
+                        color="#16A34A"
+                        style={{ marginRight: 4 }}
+                      />
+                    ) : (
+                      <Ionicons
+                        name="warning"
+                        size={13}
+                        color="#DC2626"
+                        style={{ marginRight: 4 }}
+                      />
+                    )}
+
+                    <Text
+                      style={[
+                        styles.escaneadoDetalhe,
+                        {
+                          color: isSeguro ? "#16A34A" : "#DC2626",
+                        },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {detalheTexto}
+                    </Text>
+                  </View>
+                </View>
+
+                <StatusBadge seguro={isSeguro} />
+              </TouchableOpacity>
+            );
+          })
+        ) : (
+          <View style={styles.emptyBox}>
+            <MaterialCommunityIcons
+              name="barcode-scan"
+              size={22}
+              color="#9CA3AF"
+            />
+            <Text style={styles.emptyBoxText}>
+              Nenhum produto escaneado ainda. Toque em &quot;Escanear Produto&quot;
+              acima para começar!
+            </Text>
+          </View>
+        )}
+
+        {/* DICA DO DIA */}
+        <View style={styles.tipCard}>
+          <View style={styles.tipIconBox}>
+            <Ionicons name="bulb-outline" size={20} color="#15803D" />
+          </View>
+          <View style={styles.tipContent}>
+            <Text style={styles.tipTitle}>DICA DO DIA</Text>
+            <Text style={styles.tipText}>{dicaDoDia}</Text>
+          </View>
+        </View>
       </ScrollView>
 
       {/* BARRA DE NAVEGAÇÃO INFERIOR */}
@@ -377,25 +492,21 @@ export default function HomeScreen() {
   );
 }
 
-function StatusBadge({ status }: { status: StatusProduto }) {
-  const isSeguro = status === "seguro";
-
+function StatusBadge({ seguro }: { seguro: boolean }) {
   return (
     <View
       style={[
         styles.statusBadge,
-        isSeguro ? styles.statusBadgeSeguro : styles.statusBadgeRisco,
+        seguro ? styles.statusBadgeSeguro : styles.statusBadgeRisco,
       ]}
     >
       <Text
         style={[
           styles.statusBadgeText,
-          isSeguro
-            ? styles.statusBadgeTextSeguro
-            : styles.statusBadgeTextRisco,
+          seguro ? styles.statusBadgeTextSeguro : styles.statusBadgeTextRisco,
         ]}
       >
-        {isSeguro ? "Seguro" : "Risco"}
+        {seguro ? "Seguro" : "Risco"}
       </Text>
     </View>
   );
@@ -406,34 +517,47 @@ export const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#FFFFFF",
   },
-
   scrollContent: {
     paddingHorizontal: 20,
     paddingTop: 16,
     paddingBottom: 30,
   },
-
+  erroBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  erroBannerText: {
+    flex: 1,
+    fontFamily: "Geist_500Medium",
+    fontSize: 12,
+    color: "#DC2626",
+  },
   greeting: {
     fontFamily: "Geist_700Bold",
     fontSize: 22,
     color: "#111827",
     marginBottom: 16,
   },
-
   sectionLabel: {
     fontFamily: "Geist_500Medium",
     fontSize: 13,
     color: "#9CA3AF",
     marginBottom: 10,
   },
-
   intoleranciasRow: {
     flexDirection: "row",
     alignItems: "center",
     flexWrap: "wrap",
     marginBottom: 20,
   },
-
   intolerancia: {
     flexDirection: "row",
     alignItems: "center",
@@ -442,25 +566,22 @@ export const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 14,
     marginRight: 10,
+    marginBottom: 6,
     gap: 6,
   },
-
   iconIntolerancia: {
     width: 7,
     height: 13,
   },
-
   iconIntoleranciaGluten: {
     width: 16,
     height: 16,
   },
-
   intoleranciaText: {
     fontFamily: "Geist_600SemiBold",
     fontSize: 13,
     color: "#1F2937",
   },
-
   addChipButton: {
     width: 34,
     height: 34,
@@ -469,8 +590,8 @@ export const styles = StyleSheet.create({
     borderColor: "#E5E7EB",
     alignItems: "center",
     justifyContent: "center",
+    marginBottom: 6,
   },
-
   // PROGRESSO DE SAÚDE
   progressCard: {
     width: "100%",
@@ -479,27 +600,23 @@ export const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 18,
   },
-
   progressHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 12,
   },
-
   progressTitle: {
     fontFamily: "Geist_700Bold",
     fontSize: 11,
     letterSpacing: 0.5,
     color: "#006D37",
   },
-
   progressDias: {
     fontFamily: "Geist_700Bold",
     fontSize: 15,
     color: "#006D37",
   },
-
   progressBarBackground: {
     width: "100%",
     height: 6,
@@ -508,25 +625,21 @@ export const styles = StyleSheet.create({
     marginBottom: 12,
     overflow: "hidden",
   },
-
   progressBarFill: {
     height: 6,
     borderRadius: 3,
     backgroundColor: "#15803D",
   },
-
   progressDescription: {
     fontFamily: "Geist_400Regular",
     fontSize: 12,
     lineHeight: 17,
     color: "#4B5563",
   },
-
   boldText: {
     fontFamily: "Geist_700Bold",
     color: "#111827",
   },
-
   // ESCANEAR PRODUTO
   scanCardBorder: {
     width: "100%",
@@ -535,7 +648,6 @@ export const styles = StyleSheet.create({
     backgroundColor: "#22C55E",
     marginBottom: 24,
   },
-
   scanCardInner: {
     flexDirection: "row",
     alignItems: "center",
@@ -544,7 +656,6 @@ export const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 16,
   },
-
   scanIconBox: {
     width: 44,
     height: 44,
@@ -554,70 +665,59 @@ export const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 14,
   },
-
   scanTextBox: {
     flex: 1,
   },
-
   scanTitle: {
     fontFamily: "Geist_700Bold",
     fontSize: 15,
     color: "#111827",
     marginBottom: 2,
   },
-
   scanSubtitle: {
     fontFamily: "Geist_400Regular",
     fontSize: 11,
     color: "#6B7280",
     lineHeight: 14,
   },
-
   // SEÇÕES
   sectionHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 10,
+    marginBottom: 12,
   },
-
   sectionHeaderTitle: {
     fontFamily: "Geist_700Bold",
     fontSize: 16,
     color: "#111827",
-    marginBottom: 29,
   },
-
   historicoLink: {
     fontFamily: "Geist_600SemiBold",
     fontSize: 12,
     color: "#15803D",
   },
-
   // ITENS CURTIDOS
   curtidosScroll: {
     width: "100%",
     flexGrow: 0,
     flexShrink: 0,
   },
-
   curtidosRow: {
     flexDirection: "row",
     alignItems: "flex-start",
     paddingRight: 12,
     paddingBottom: 4,
   },
-
   curtidoCard: {
-    width: 82,
+    width: 86,
     flexShrink: 0,
     marginRight: 10,
   },
-
   curtidoImageBox: {
-    width: 82,
-    height: 82,
-    borderRadius: 9,
+    width: 86,
+    height: 86,
+    borderRadius: 10,
     backgroundColor: "#F3F4F6",
     marginBottom: 5,
     position: "relative",
@@ -625,12 +725,10 @@ export const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   curtidoImage: {
     width: "100%",
     height: "100%",
   },
-
   heartIcon: {
     position: "absolute",
     top: 4,
@@ -642,20 +740,36 @@ export const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   curtidoNome: {
     fontFamily: "Geist_600SemiBold",
-    fontSize: 9,
-    lineHeight: 12,
+    fontSize: 10,
+    lineHeight: 13,
     color: "#111827",
   },
-
   statusSimpleText: {
-    fontFamily: "Geist_400Regular",
-    fontSize: 9,
+    fontFamily: "Geist_500Medium",
+    fontSize: 9.5,
     marginTop: 2,
   },
-
+  emptyBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "#F9FAFB",
+    borderWidth: 1,
+    borderColor: "#F3F4F6",
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    marginBottom: 6,
+  },
+  emptyBoxText: {
+    flex: 1,
+    fontFamily: "Geist_400Regular",
+    fontSize: 12,
+    lineHeight: 17,
+    color: "#6B7280",
+  },
   // RECÉM ESCANEADOS
   escaneadoRow: {
     flexDirection: "row",
@@ -667,84 +781,64 @@ export const styles = StyleSheet.create({
     padding: 10,
     marginBottom: 10,
   },
-
-  escaneadoImage: {
-    width: 46,
-    height: 46,
-    borderRadius: 12,
-    marginRight: 12,
-  },
-
   escaneadoImagePlaceholder: {
     width: 46,
     height: 46,
     borderRadius: 12,
     backgroundColor: "#F3F4F6",
     marginRight: 12,
-    alignItems: "center",
-    justifyContent: "center",
   },
-
   escaneadoInfo: {
     flex: 1,
+    marginRight: 8,
   },
-
   escaneadoNome: {
     fontFamily: "Geist_700Bold",
     fontSize: 13,
     color: "#111827",
   },
-
   escaneadoDetalheRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 2,
+    marginTop: 3,
   },
-
   escaneadoDetalhe: {
     fontFamily: "Geist_600SemiBold",
     fontSize: 11,
+    flexShrink: 1,
   },
-
   // STATUS BADGE
   statusBadge: {
     borderRadius: 12,
     paddingVertical: 4,
     paddingHorizontal: 12,
   },
-
   statusBadgeSeguro: {
     backgroundColor: "#DCFCE7",
   },
-
   statusBadgeRisco: {
     backgroundColor: "#FEE2E2",
   },
-
   statusBadgeText: {
     fontFamily: "Geist_600SemiBold",
     fontSize: 11,
   },
-
   statusBadgeTextSeguro: {
     color: "#15803D",
   },
-
   statusBadgeTextRisco: {
     color: "#DC2626",
   },
-
   // DICA DO DIA
   tipCard: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "#F3F4F6",
     borderRadius: 16,
-    padding: 12,
-    marginTop: 8,
+    padding: 14,
+    marginTop: 12,
     gap: 12,
   },
-
   tipIconBox: {
     width: 38,
     height: 38,
@@ -753,23 +847,20 @@ export const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   tipContent: {
     flex: 1,
   },
-
   tipTitle: {
     fontFamily: "Geist_700Bold",
     fontSize: 10,
     color: "#15803D",
     letterSpacing: 0.5,
-    marginBottom: 2,
+    marginBottom: 3,
   },
-
   tipText: {
     fontFamily: "Geist_400Regular",
-    fontSize: 11,
-    lineHeight: 15,
+    fontSize: 11.5,
+    lineHeight: 16,
     color: "#374151",
   },
 });

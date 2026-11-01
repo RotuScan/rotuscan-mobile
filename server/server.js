@@ -1,365 +1,1147 @@
 import 'dotenv/config';
 import express from 'express';
 import mongoose from 'mongoose';
-import multer from 'multer';
-import tesseract from 'node-tesseract-ocr';
 import cors from 'cors';
-import bcrypt from 'bcryptjs';
+import multer from 'multer';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
+import sharp from 'sharp';
 
-const app = express();
-const JWT_SECRET = process.env.JWT_SECRET || 'rotuscan_secret_key_2026';
+import User, { CATEGORIAS_VALIDAS } from './models/User.js';
+import AllergenDictionary from './models/AllergenDictionary.js';
+import ScanLog from './models/ScanLog.js';
+import { DICIONARIO_PADRAO } from './seeds/dicionarioPadrao.js';
+import { normalizar, escaparRegex, emailValido } from './utils/texto.js';
+import { autenticarJWT, JWT_SECRET } from './middleware/auth.js';
+import { extrairTextoDaImagem, analisarTextoRotulo } from './services/ocrAnalyzer.js';
 
-app.use(cors());
-app.use(express.json());
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-// Log de todas as requisições recebidas para facilitar diagnóstico no terminal
-app.use((req, res, next) => {
-  console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${req.url}`);
-  next();
-});
+const UPLOADS_DIR = path.join(__dirname, 'uploads');
+const TMP_UPLOADS_DIR = path.join(UPLOADS_DIR, 'tmp');
+const SCANS_UPLOADS_DIR = path.join(UPLOADS_DIR, 'scans');
 
-// ==========================================
-// 1. MODELOS (Schemas do Banco de Dados)
-// ==========================================
-const Usuario = mongoose.model('Usuario', new mongoose.Schema({
-  nome: { type: String, required: true },
-  email: { type: String, required: true, unique: true },
-  senha: { type: String, required: true },
-  restricoes: { type: [String], default: [] },
-  liberarPodeConter: { type: Boolean, default: false }
-}));
-
-const Restricao = mongoose.model('Restricao', new mongoose.Schema({
-  categoria: { type: String, required: true, unique: true }, // ex: 'lactose'
-  sinonimos: [{ type: String }] 
-}));
-
-const Historico = mongoose.model('Historico', new mongoose.Schema({
-  userId: { type: String, required: false },
-  veredito: { type: String, enum: ['SEGURO', 'PERIGO'], required: true },
-  alergicosEncontrados: [{ type: String }],
-  textoLido: { type: String },
-  criadoEm: { type: Date, default: Date.now }
-}));
-
-
-// ==========================================
-// 2. CONEXÃO COM O MONGODB ATLAS E POPULAÇÃO INICIAL
-// ==========================================
-mongoose.connect(process.env.MONGODB_URI)
-  .then(async () => {
-    console.log("Conectado ao MongoDB Atlas com sucesso.");
-    
-    // 1. Remoção de índices antigos para evitar conflitos de restrição única (E11000)
-    try {
-      await Restricao.collection.dropIndexes();
-    } catch (e) { 
-      // Ignora silenciosamente se não houver índices antigos
-    }
-
-    // 2. AUTO-SEED: Verifica se precisa popular
-    const count = await Restricao.countDocuments();
-    
-    if (count < 3) {
-      console.log("Populando base de dados de restricoes...");
-      await Restricao.deleteMany({});
-      
-      const dadosIniciais = [
-        { 
-          categoria: 'lactose', 
-          sinonimos: [
-            'leite', 'lactose', 'soro de leite', 'manteiga', 'queijo', 'caseína', 
-            'creme de leite', 'nata', 'coalhada', 'iogurte', 'kefir', 'leite em pó', 
-            'proteína do leite', 'lactoalbumina', 'lactoglobulina'
-          ] 
-        },
-        { 
-          categoria: 'gluten', 
-          sinonimos: [
-            'gluten', 'glúten', 'trigo', 'centeio', 'cevada', 'malte', 'aveia', 
-            'farinha de trigo', 'espelta', 'triticale', 'kamut', 'farelo', 'germe', 
-            'amido de trigo', 'proteína vegetal hidrolisada', 'farinha'
-          ] 
-        },
-        { 
-          categoria: 'amendoim', 
-          sinonimos: [
-            'amendoim', 'amendoins', 'óleo de amendoim', 'pasta de amendoim', 
-            'manteiga de amendoim', 'paçoca', 'extrato de amendoim', 'cacauete'
-          ] 
-        }
-      ];
-      await Restricao.insertMany(dadosIniciais);
-      console.log("Base de restricoes inicializada com sucesso.");
-    } else {
-      console.log(`Base de dados consistente: ${count} categorias registradas.`);
-    }
-  })
-  .catch(err => console.error("Erro ao conectar ao MongoDB:", err));
-  
-// ==========================================
-// 3. CONFIG TESSERACT
-// ==========================================
-const config = {
-  lang: "por", oem: 1, psm: 3,
-  binary: '"C:\\Program Files\\Tesseract-OCR\\tesseract.exe"' 
-};
-
-
-// ==========================================
-// 4. ROTAS DE AUTENTICAÇÃO E PERFIL
-// ==========================================
-
-// Função auxiliar para registrar usuário (usada tanto em /auth/register quanto em /api/cadastro)
-async function registrarUsuario(req, res) {
-  try {
-    const { nome, email, senha } = req.body;
-    if (!nome || !email || !senha) {
-      return res.status(400).json({ erro: "Preencha nome, e-mail e senha." });
-    }
-
-    const emailFormatado = email.trim().toLowerCase();
-    const existente = await Usuario.findOne({ email: emailFormatado });
-    if (existente) {
-      return res.status(400).json({ erro: "Este e-mail já está cadastrado." });
-    }
-
-    const senhaHash = await bcrypt.hash(senha, 10);
-    const novoUsuario = new Usuario({
-      nome: nome.trim(),
-      email: emailFormatado,
-      senha: senhaHash,
-      restricoes: []
-    });
-    await novoUsuario.save();
-
-    const token = jwt.sign({ id: novoUsuario._id }, JWT_SECRET, { expiresIn: '30d' });
-    console.log(`Usuario cadastrado com sucesso: ${novoUsuario.email}`);
-
-    res.status(201).json({
-      mensagem: "Usuário criado!",
-      token,
-      usuario: {
-        id: String(novoUsuario._id),
-        nome: novoUsuario.nome,
-        email: novoUsuario.email,
-        restricoes: novoUsuario.restricoes || []
-      }
-    });
-  } catch (error) {
-    console.error("Erro ao salvar usuario:", error.message);
-    res.status(400).json({ erro: "Email já cadastrado ou erro nos dados enviados." });
+for (const dir of [UPLOADS_DIR, TMP_UPLOADS_DIR, SCANS_UPLOADS_DIR]) {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
   }
 }
 
-// Função auxiliar para autenticar usuário (usada tanto em /auth/login quanto em /api/login)
-async function autenticarUsuario(req, res) {
-  try {
-    const { email, senha } = req.body;
-    if (!email || !senha) {
-      return res.status(400).json({ erro: "Informe e-mail e senha." });
+const app = express();
+app.use(cors());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Configuração do Multer com limite de 8MB e filtro de imagem
+const upload = multer({
+  dest: TMP_UPLOADS_DIR,
+  limits: {
+    fileSize: 8 * 1024 * 1024, // 8MB
+  },
+  fileFilter: (_req, file, cb) => {
+    const mime = (file.mimetype || '').toLowerCase();
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    const mimesAceitos = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+    const extsAceitas = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif'];
+
+    if (mime.startsWith('image/') || mimesAceitos.includes(mime) || extsAceitas.includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Formato de arquivo inválido. Envie apenas imagens (JPG, PNG ou WebP).'));
+    }
+  },
+});
+
+// ============================================================================
+// FUNÇÕES AUXILIARES
+// ============================================================================
+
+function formatarItemHistorico(doc, incluirDetalhes = false) {
+  const obj = typeof doc.toObject === 'function' ? doc.toObject() : doc;
+  const idStr = String(obj._id);
+  const base = {
+    id: idStr,
+    _id: idStr,
+    userId: String(obj.userId),
+    nomeProduto: obj.nomeProduto || 'Produto analisado',
+    nomeAutomatico: Boolean(obj.nomeAutomatico),
+    marcaPeso: obj.marcaPeso || null,
+    veredito: obj.veredito,
+    alergicosDetectados: Array.isArray(obj.alergicosDetectados) ? obj.alergicosDetectados : [],
+    curtido: Boolean(obj.curtido),
+    imagemUrl: obj.imagemArquivo ? `/users/historico/${idStr}/imagem` : null,
+    imagemDemo: obj.imagemDemo || null,
+    seed: Boolean(obj.seed),
+    createdAt: obj.createdAt,
+    updatedAt: obj.updatedAt,
+  };
+
+  if (incluirDetalhes) {
+    base.ingredientesDetalhados = Array.isArray(obj.ingredientesDetalhados)
+      ? obj.ingredientesDetalhados
+      : [];
+    base.textoBruto = obj.textoBruto || '';
+  }
+
+  return base;
+}
+
+function validarRestricoesENiveis(restricoes, niveisSensibilidade, exigirAoMenosUma = true) {
+  if (!Array.isArray(restricoes)) {
+    return { erro: 'O campo restricoes deve ser uma lista.' };
+  }
+
+  const restricoesLimpas = [];
+  for (const r of restricoes) {
+    const norm = normalizar(String(r));
+    if (!CATEGORIAS_VALIDAS.includes(norm)) {
+      return { erro: `Restrição inválida: "${r}". Valores aceitos: gluten, lactose, amendoim.` };
+    }
+    if (!restricoesLimpas.includes(norm)) {
+      restricoesLimpas.push(norm);
+    }
+  }
+
+  if (exigirAoMenosUma && restricoesLimpas.length === 0) {
+    return { erro: 'Selecione ao menos uma intolerância' };
+  }
+
+  const niveisLimpos = {
+    gluten: 1,
+    lactose: 1,
+    amendoim: 1,
+  };
+
+  if (niveisSensibilidade && typeof niveisSensibilidade === 'object') {
+    for (const cat of CATEGORIAS_VALIDAS) {
+      if (niveisSensibilidade[cat] !== undefined) {
+        const val = Number(niveisSensibilidade[cat]);
+        if (![0, 1, 2].includes(val)) {
+          return {
+            erro: `Nível de sensibilidade inválido para ${cat}. Use 0 (Leve), 1 (Moderado) ou 2 (Grave).`,
+          };
+        }
+        niveisLimpos[cat] = val;
+      }
+    }
+  }
+
+  return { restricoes: restricoesLimpas, niveisSensibilidade: niveisLimpos };
+}
+
+/**
+ * Calcula estatísticas do usuário no fuso America/Sao_Paulo:
+ * - escaneamentosSegurosMes (mês calendário atual em SP)
+ * - diasConsecutivos (streak de dias com ao menos 1 scan terminando hoje ou ontem em SP)
+ * - totalScans
+ * - metaMensal: 50
+ */
+async function calcularStatsUsuario(userId) {
+  const agora = new Date();
+  const formatadorDataSP = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+
+  // Data atual em SP no formato YYYY-MM-DD
+  const hojeSPStr = formatadorDataSP.format(agora);
+  const [anoSP, mesSP] = hojeSPStr.split('-').map(Number);
+
+  // Início do mês atual em America/Sao_Paulo (UTC-3 => 03:00 UTC do dia 1)
+  const inicioMesSP = new Date(Date.UTC(anoSP, mesSP - 1, 1, 3, 0, 0, 0));
+
+  const [totalScans, escaneamentosSegurosMes, logsDatas] = await Promise.all([
+    ScanLog.countDocuments({ userId }),
+    ScanLog.countDocuments({
+      userId,
+      veredito: 'SEGURO',
+      createdAt: { $gte: inicioMesSP },
+    }),
+    ScanLog.find({ userId }).select('createdAt').sort({ createdAt: -1 }).limit(365).lean(),
+  ]);
+
+  let diasConsecutivos = 0;
+  if (logsDatas.length > 0) {
+    const diasComScan = new Set(
+      logsDatas
+        .filter((l) => l.createdAt)
+        .map((l) => formatadorDataSP.format(new Date(l.createdAt)))
+    );
+
+    const somarDias = (yyyyMmDd, delta) => {
+      const [y, m, d] = yyyyMmDd.split('-').map(Number);
+      const dt = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+      dt.setUTCDate(dt.getUTCDate() + delta);
+      return dt.toISOString().slice(0, 10);
+    };
+
+    const ontemSPStr = somarDias(hojeSPStr, -1);
+    let cursorDia = null;
+    if (diasComScan.has(hojeSPStr)) {
+      cursorDia = hojeSPStr;
+    } else if (diasComScan.has(ontemSPStr)) {
+      cursorDia = ontemSPStr;
     }
 
-    const emailFormatado = email.trim().toLowerCase();
-    // Busca case-insensitive ou exata para compatibilidade com cadastros antigos
-    const usuario = await Usuario.findOne({
-      $or: [{ email: emailFormatado }, { email: email.trim() }]
+    while (cursorDia && diasComScan.has(cursorDia)) {
+      diasConsecutivos++;
+      cursorDia = somarDias(cursorDia, -1);
+    }
+  }
+
+  return {
+    escaneamentosSegurosMes,
+    diasConsecutivos,
+    totalScans,
+    metaMensal: 50,
+  };
+}
+
+// ============================================================================
+// INICIALIZAÇÃO DO DICIONÁRIO (IDEMPOTENTE, SEM OPERAÇÕES DESTRUTIVAS)
+// ============================================================================
+
+async function inicializarDicionarioPadrao() {
+  try {
+    for (const [categoria, sinonimosPadrao] of Object.entries(DICIONARIO_PADRAO)) {
+      await AllergenDictionary.findOneAndUpdate(
+        { categoria },
+        {
+          $setOnInsert: { categoria },
+          $addToSet: { sinonimos: { $each: sinonimosPadrao } },
+        },
+        { upsert: true, returnDocument: 'after' }
+      );
+    }
+    const totalCategorias = await AllergenDictionary.countDocuments();
+    console.log(`Dicionário de alérgenos pronto (${totalCategorias} categorias registradas).`);
+  } catch (err) {
+    console.error('Erro ao inicializar AllergenDictionary:', err.message);
+  }
+}
+
+// ============================================================================
+// ROTAS DE AUTENTICAÇÃO
+// ============================================================================
+
+async function handlerRegister(req, res) {
+  try {
+    const {
+      nome,
+      email,
+      senha,
+      restricoes = [],
+      niveisSensibilidade,
+      avatar = null,
+    } = req.body || {};
+
+    if (!nome || typeof nome !== 'string' || !nome.trim()) {
+      return res.status(400).json({ erro: 'Informe seu nome completo.' });
+    }
+
+    if (!emailValido(email)) {
+      return res.status(400).json({ erro: 'Informe um endereço de e-mail válido.' });
+    }
+
+    if (!senha || typeof senha !== 'string' || senha.length < 6) {
+      return res.status(400).json({ erro: 'A senha deve ter pelo menos 6 caracteres.' });
+    }
+
+    const validacao = validarRestricoesENiveis(restricoes, niveisSensibilidade, true);
+    if (validacao.erro) {
+      return res.status(400).json({ erro: validacao.erro });
+    }
+
+    const emailNorm = email.trim().toLowerCase();
+    const existente = await User.findOne({ email: emailNorm });
+    if (existente) {
+      return res.status(409).json({ erro: 'Este e-mail já está cadastrado.' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const senhaHash = await bcrypt.hash(senha, salt);
+
+    const novoUsuario = await User.create({
+      nome: nome.trim(),
+      email: emailNorm,
+      senha: senhaHash,
+      avatar,
+      role: 'PACIENTE',
+      restricoes: validacao.restricoes,
+      niveisSensibilidade: validacao.niveisSensibilidade,
+      restricoesAtualizadasEm: new Date(),
+      restricoesAtualizadasPor: 'PACIENTE',
     });
 
-    if (!usuario) {
-      return res.status(401).json({ erro: "E-mail ou senha incorretos." });
+    const token = jwt.sign(
+      { id: String(novoUsuario._id), email: novoUsuario.email },
+      JWT_SECRET,
+      { expiresIn: '30d' }
+    );
+
+    return res.status(201).json({
+      sucesso: true,
+      mensagem: 'Usuário cadastrado com sucesso!',
+      token,
+      usuario: novoUsuario.toPublic(),
+    });
+  } catch (err) {
+    if (err?.code === 11000) {
+      return res.status(409).json({ erro: 'Este e-mail já está cadastrado.' });
+    }
+    console.error('Erro no cadastro:', err);
+    return res.status(500).json({ erro: 'Erro interno ao realizar o cadastro.' });
+  }
+}
+
+app.post('/auth/register', handlerRegister);
+app.post('/api/cadastro', handlerRegister);
+
+async function handlerLogin(req, res) {
+  try {
+    const { email, senha } = req.body || {};
+    if (!email || !senha) {
+      return res.status(400).json({ erro: 'Preencha e-mail e senha.' });
     }
 
-    // Suporta tanto senha com hash bcrypt quanto senha em texto puro de cadastros antigos
+    const emailNorm = String(email).trim().toLowerCase();
+    let user = await User.findOne({ email: emailNorm }).select('+senha');
+
+    // Fallback transparente caso o usuário ainda esteja apenas na coleção legada `usuarios`
+    if (!user && mongoose.connection.readyState === 1) {
+      const legado = await mongoose.connection.db
+        .collection('usuarios')
+        .findOne({ email: { $regex: `^${ emailNorm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') }$`, $options: 'i' } });
+
+      if (legado) {
+        const senhaLegada = legado.senha || '';
+        const ehHash = /^\$2[aby]\$/.test(senhaLegada);
+        const senhaConfere = ehHash
+          ? await bcrypt.compare(senha, senhaLegada)
+          : senha === senhaLegada;
+
+        if (!senhaConfere) {
+          return res.status(401).json({ erro: 'E-mail ou senha incorretos.' });
+        }
+
+        const hashFinal = ehHash ? senhaLegada : await bcrypt.hash(senha, 10);
+        const restricoesLegadas = Array.isArray(legado.restricoes)
+          ? legado.restricoes
+              .map((r) => normalizar(String(r)))
+              .filter((r) => CATEGORIAS_VALIDAS.includes(r))
+          : [];
+
+        user = await User.create({
+          nome: legado.nome || legado.name || 'Usuário',
+          email: emailNorm,
+          senha: hashFinal,
+          role: 'PACIENTE',
+          restricoes: restricoesLegadas,
+          niveisSensibilidade: { gluten: 1, lactose: 1, amendoim: 1 },
+          restricoesAtualizadasEm: new Date(),
+          restricoesAtualizadasPor: 'PACIENTE',
+        });
+      }
+    }
+
+    if (!user) {
+      return res.status(401).json({ erro: 'E-mail ou senha incorretos.' });
+    }
+
+    const senhaArmazenada = user.senha || '';
+    const ehBcrypt = /^\$2[aby]\$/.test(senhaArmazenada);
     let senhaValida = false;
-    if (usuario.senha && usuario.senha.startsWith('$2')) {
-      senhaValida = await bcrypt.compare(senha, usuario.senha);
-    } else {
-      senhaValida = usuario.senha === senha;
+
+    if (ehBcrypt) {
+      senhaValida = await bcrypt.compare(senha, senhaArmazenada);
+    } else if (senhaArmazenada) {
+      senhaValida = senha === senhaArmazenada;
+      if (senhaValida) {
+        user.senha = await bcrypt.hash(senha, 10);
+        await user.save();
+      }
     }
 
     if (!senhaValida) {
-      return res.status(401).json({ erro: "E-mail ou senha incorretos." });
+      return res.status(401).json({ erro: 'E-mail ou senha incorretos.' });
     }
 
-    const token = jwt.sign({ id: usuario._id }, JWT_SECRET, { expiresIn: '30d' });
-    console.log(`Login realizado com sucesso: ${usuario.email}`);
+    const token = jwt.sign(
+      { id: String(user._id), email: user.email },
+      JWT_SECRET,
+      { expiresIn: '30d' }
+    );
 
-    res.json({
+    return res.status(200).json({
+      sucesso: true,
+      mensagem: 'Login realizado com sucesso!',
       token,
-      usuarioId: String(usuario._id),
-      nome: usuario.nome,
-      email: usuario.email,
-      usuario: {
-        id: String(usuario._id),
-        nome: usuario.nome,
-        email: usuario.email,
-        restricoes: usuario.restricoes || []
-      }
+      usuario: user.toPublic(),
     });
-  } catch (error) {
-    console.error("Erro no login:", error.message);
-    res.status(500).json({ erro: "Erro interno ao realizar login." });
+  } catch (err) {
+    console.error('Erro no login:', err);
+    return res.status(500).json({ erro: 'Erro interno no servidor ao realizar login.' });
   }
 }
 
-// Rotas novas usadas pelo Mobile (SDK 58)
-app.post('/auth/register', registrarUsuario);
-app.post('/auth/login', autenticarUsuario);
+app.post('/auth/login', handlerLogin);
+app.post('/api/login', handlerLogin);
 
-// Rotas legadas mantidas por compatibilidade
-app.post('/api/cadastro', registrarUsuario);
-app.post('/api/login', autenticarUsuario);
+// ============================================================================
+// ROTAS DE PERFIL E RESTRIÇÕES (JWT)
+// ============================================================================
 
-// Rota para salvar intolerâncias/restrições do usuário (selectIntolerancia.tsx)
-app.put('/users/restricoes', async (req, res) => {
+app.get('/users/perfil', autenticarJWT, async (req, res) => {
   try {
-    const { userId, restricoes, liberarPodeConter } = req.body;
-    if (!userId) {
-      return res.status(400).json({ erro: "ID do usuário não informado." });
+    const user = await User.findById(req.userId);
+    if (!user) {
+      return res.status(404).json({ erro: 'Usuário não encontrado.' });
     }
 
-    const usuarioAtualizado = await Usuario.findByIdAndUpdate(
-      userId,
+    const stats = await calcularStatsUsuario(user._id);
+    const publicUser = user.toPublic();
+
+    return res.json({
+      ...publicUser,
+      usuario: publicUser,
+      stats,
+    });
+  } catch (err) {
+    console.error('Erro em GET /users/perfil:', err);
+    return res.status(500).json({ erro: 'Erro ao carregar perfil do usuário.' });
+  }
+});
+
+app.put('/users/restricoes', autenticarJWT, async (req, res) => {
+  try {
+    const { restricoes, niveisSensibilidade } = req.body || {};
+    const validacao = validarRestricoesENiveis(restricoes, niveisSensibilidade, true);
+    if (validacao.erro) {
+      return res.status(400).json({ erro: validacao.erro });
+    }
+
+    const atualizado = await User.findByIdAndUpdate(
+      req.userId,
       {
-        restricoes: Array.isArray(restricoes) ? restricoes : [],
-        liberarPodeConter: Boolean(liberarPodeConter)
+        $set: {
+          restricoes: validacao.restricoes,
+          niveisSensibilidade: validacao.niveisSensibilidade,
+          restricoesAtualizadasEm: new Date(),
+          restricoesAtualizadasPor: 'PACIENTE',
+        },
       },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
-    if (!usuarioAtualizado) {
-      return res.status(404).json({ erro: "Usuário não encontrado." });
+    if (!atualizado) {
+      return res.status(404).json({ erro: 'Usuário não encontrado.' });
     }
 
-    console.log(`Restricoes atualizadas para ${usuarioAtualizado.email}: [${usuarioAtualizado.restricoes.join(', ')}]`);
-    res.json({
+    const publicUser = atualizado.toPublic();
+    return res.json({
       sucesso: true,
-      restricoes: usuarioAtualizado.restricoes,
-      liberarPodeConter: usuarioAtualizado.liberarPodeConter
+      mensagem: 'Intolerâncias e níveis atualizados com sucesso!',
+      ...publicUser,
+      usuario: publicUser,
     });
-  } catch (error) {
-    console.error("Erro ao atualizar restricoes:", error.message);
-    res.status(500).json({ erro: "Erro ao salvar restrições." });
+  } catch (err) {
+    console.error('Erro em PUT /users/restricoes:', err);
+    return res.status(500).json({ erro: 'Erro ao atualizar intolerâncias.' });
   }
 });
 
-// Rota para buscar histórico de análises do usuário (perfil.tsx)
-app.get('/users/historico/:userId', async (req, res) => {
+async function handlerAtualizarPerfil(req, res) {
   try {
-    const { userId } = req.params;
-    const logs = await Historico.find({ userId }).sort({ criadoEm: -1 }).limit(50);
-    res.json(logs);
-  } catch (error) {
-    console.error("Erro ao buscar historico:", error.message);
-    res.json([]);
-  }
-});
-
-// Rota para atualização de dados cadastrais e credenciais
-app.put('/api/usuario/atualizar', async (req, res) => {
-  const { id, nome, email, senha } = req.body;
-  console.log(`Atualizacao de perfil solicitada para o ID: ${id}`);
-
-  try {
-    // Monta o objeto com os campos obrigatórios
-    const dadosAtualizacao = { nome, email };
-
-    // Se o usuário digitou uma senha nova, inclui ela no update (com hash)
-    if (senha) {
-      dadosAtualizacao.senha = await bcrypt.hash(senha, 10);
+    const userId = req.userId || req.body?.id;
+    if (!userId) {
+      return res.status(401).json({ erro: 'Não autenticado.' });
     }
 
-    // Busca pelo ID do MongoDB e faz a alteração
-    const usuarioAtualizado = await Usuario.findByIdAndUpdate(id, dadosAtualizacao, { new: true });
-
-    if (!usuarioAtualizado) {
-      return res.status(404).json({ erro: "Usuário não localizado no sistema." });
+    const user = await User.findById(userId).select('+senha');
+    if (!user) {
+      return res.status(404).json({ erro: 'Usuário não encontrado.' });
     }
 
-    console.log("Perfil modificado com sucesso no MongoDB.");
-    // Retorno conforme estrutura esperada pelo componente EditarPerfilScreen
-    res.json({ sucesso: true, mensagem: "Perfil atualizado com sucesso!" });
+    const {
+      nome,
+      email,
+      avatar,
+      senhaAtual,
+      novaSenha,
+      senha,
+      restricoes,
+      niveisSensibilidade,
+    } = req.body || {};
 
-  } catch (error) {
-    console.error("Erro ao atualizar perfil:", error.message);
-    res.status(500).json({ erro: "Erro interno ao tentar salvar as alterações." });
-  }
-});
+    if (nome !== undefined) {
+      if (!String(nome).trim()) {
+        return res.status(400).json({ erro: 'O nome não pode ficar vazio.' });
+      }
+      user.nome = String(nome).trim();
+    }
 
-
-// ==========================================
-// 5. ROTA DO SCANNER (Consultando a Nuvem)
-// ==========================================
-const upload = multer({ dest: 'uploads/' });
-
-app.post('/scanner', upload.single('photo'), async (req, res) => {
-  if (!req.file) return res.status(400).send('Nenhuma imagem enviada.');
-
-  try {
-    const restricoesUsuarioStr = req.body.restricoes;
-    const restricoesUsuario = restricoesUsuarioStr ? JSON.parse(restricoesUsuarioStr) : [];
-    const userId = req.body.userId || null;
-    
-    console.log(`Analise de restricoes do usuario: ${restricoesUsuario.join(', ')}`);
-
-    const text = await tesseract.recognize(req.file.path, config);
-    const textLower = text.toLowerCase().replace(/(\r\n|\n|\r)/gm, " "); 
-    
-    console.log("--- TEXTO LIDO DO RÓTULO ---");
-    console.log(textLower);
-    console.log("----------------------------");
-
-    const restricoesDoBanco = await Restricao.find({ categoria: { $in: restricoesUsuario } });
-
-    let alergicosEncontrados = [];
-
-    restricoesDoBanco.forEach(restricaoDoc => {
-      const categoria = restricaoDoc.categoria;
-      const palavrasProibidas = restricaoDoc.sinonimos;
-
-      palavrasProibidas.forEach(palavra => {
-        if (textLower.includes(palavra)) {
-          // Verificação de termos que indicam ausência do alergênico
-          const falsoPos1 = `não contém ${palavra}`;
-          const falsoPos2 = `sem ${palavra}`;
-          const falsoPos3 = `0% ${palavra}`;
-
-          if (!textLower.includes(falsoPos1) && !textLower.includes(falsoPos2) && !textLower.includes(falsoPos3)) {
-            if (!alergicosEncontrados.includes(categoria)) {
-              alergicosEncontrados.push(categoria);
-            }
-          }
+    if (email !== undefined) {
+      const emailNorm = String(email).trim().toLowerCase();
+      if (!emailValido(emailNorm)) {
+        return res.status(400).json({ erro: 'Informe um e-mail válido.' });
+      }
+      if (emailNorm !== user.email) {
+        const duplicado = await User.findOne({ email: emailNorm, _id: { $ne: user._id } });
+        if (duplicado) {
+          return res.status(409).json({ erro: 'Este e-mail já está em uso por outra conta.' });
         }
-      });
-    });
-
-    const veredito = alergicosEncontrados.length > 0 ? "PERIGO" : "SEGURO";
-
-    // Registra no histórico se houver userId
-    if (userId) {
-      await Historico.create({
-        userId,
-        veredito,
-        alergicosEncontrados,
-        textoLido: textLower
-      }).catch(() => {});
+        user.email = emailNorm;
+      }
     }
 
-    res.json({
-      sucesso: true,
-      status: veredito,
-      alergicosEncontrados: alergicosEncontrados
-    });
+    if (avatar !== undefined) {
+      user.avatar = avatar;
+    }
 
-  } catch (error) {
-    console.error("Erro no OCR:", error);
-    res.status(500).json({ erro: error.message });
+    // Troca de senha (exige senhaAtual + novaSenha >= 6)
+    const senhaNovaCandidata = novaSenha || (senha && String(senha).trim() ? String(senha).trim() : null);
+    if (senhaNovaCandidata) {
+      if (senhaNovaCandidata.length < 6) {
+        return res.status(400).json({ erro: 'A nova senha deve ter pelo menos 6 caracteres.' });
+      }
+      if (!senhaAtual) {
+        return res.status(400).json({ erro: 'Informe a senha atual para alterar a senha.' });
+      }
+      const ehBcrypt = /^\$2[aby]\$/.test(user.senha || '');
+      const confere = ehBcrypt
+        ? await bcrypt.compare(senhaAtual, user.senha)
+        : senhaAtual === user.senha;
+
+      if (!confere) {
+        return res.status(400).json({ erro: 'A senha atual está incorreta.' });
+      }
+      user.senha = await bcrypt.hash(senhaNovaCandidata, 10);
+    }
+
+    if (Array.isArray(restricoes)) {
+      const validacao = validarRestricoesENiveis(
+        restricoes,
+        niveisSensibilidade || user.niveisSensibilidade,
+        true
+      );
+      if (validacao.erro) {
+        return res.status(400).json({ erro: validacao.erro });
+      }
+      user.restricoes = validacao.restricoes;
+      user.niveisSensibilidade = validacao.niveisSensibilidade;
+      user.restricoesAtualizadasEm = new Date();
+      user.restricoesAtualizadasPor = 'PACIENTE';
+    }
+
+    await user.save();
+    const publicUser = user.toPublic();
+
+    return res.json({
+      sucesso: true,
+      mensagem: 'Perfil atualizado com sucesso!',
+      ...publicUser,
+      usuario: publicUser,
+    });
+  } catch (err) {
+    console.error('Erro em PUT /users/perfil:', err);
+    return res.status(500).json({ erro: 'Erro interno ao atualizar perfil.' });
+  }
+}
+
+app.put('/users/perfil', autenticarJWT, handlerAtualizarPerfil);
+app.put('/api/usuario/atualizar', autenticarJWT, handlerAtualizarPerfil);
+
+app.post(
+  '/users/avatar',
+  autenticarJWT,
+  (req, res, next) => {
+    upload.single('avatar')(req, res, (err) => {
+      if (err) {
+        return res.status(400).json({ erro: err.message || 'Erro no envio do avatar.' });
+      }
+      return next();
+    });
+  },
+  async (req, res) => {
+    const caminhoTemp = req.file?.path;
+    try {
+      const user = await User.findById(req.userId);
+      if (!user) {
+        return res.status(404).json({ erro: 'Usuário não encontrado.' });
+      }
+
+      if (caminhoTemp) {
+        const bufferCompactado = await sharp(caminhoTemp)
+          .rotate()
+          .resize(240, 240, { fit: 'cover' })
+          .jpeg({ quality: 80 })
+          .toBuffer();
+
+        user.avatar = `data:image/jpeg;base64,${bufferCompactado.toString('base64')}`;
+      } else if (req.body?.avatar !== undefined) {
+        user.avatar = req.body.avatar;
+      } else {
+        return res.status(400).json({ erro: 'Nenhuma imagem de avatar foi enviada.' });
+      }
+
+      await user.save();
+      const publicUser = user.toPublic();
+      return res.json({
+        sucesso: true,
+        mensagem: 'Foto de perfil atualizada com sucesso!',
+        avatar: user.avatar,
+        ...publicUser,
+        usuario: publicUser,
+      });
+    } catch (err) {
+      console.error('Erro em POST /users/avatar:', err);
+      return res.status(500).json({ erro: 'Erro ao atualizar a foto de perfil.' });
+    } finally {
+      try {
+        if (caminhoTemp && fs.existsSync(caminhoTemp)) {
+          await fs.promises.unlink(caminhoTemp);
+        }
+      } catch {
+        // ignora erro de limpeza do temporário
+      }
+    }
+  }
+);
+
+app.delete('/users/me', autenticarJWT, async (req, res) => {
+  try {
+    const userId = String(req.userId);
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ erro: 'Usuário não encontrado.' });
+    }
+
+    // 1. Apaga os ScanLogs pertencentes ao próprio usuário
+    await ScanLog.deleteMany({ userId: user._id });
+
+    // 2. Remove a pasta de thumbnails do usuário se existir
+    const pastaScansUsuario = path.join(SCANS_UPLOADS_DIR, userId);
+    if (fs.existsSync(pastaScansUsuario)) {
+      await fs.promises.rm(pastaScansUsuario, { recursive: true, force: true });
+    }
+
+    // 3. Remove o documento User
+    await User.findByIdAndDelete(user._id);
+
+    return res.json({
+      sucesso: true,
+      mensagem: 'Sua conta e todo o histórico foram excluídos permanentemente.',
+    });
+  } catch (err) {
+    console.error('Erro em DELETE /users/me:', err);
+    return res.status(500).json({ erro: 'Erro ao excluir a conta.' });
   }
 });
 
-// Inicializa o Servidor
-app.listen(3000, '0.0.0.0', () => {
-  console.log("Servidor rodando na porta 3000");
+// ============================================================================
+// ROTAS DE HISTÓRICO E CURTIDOS (JWT)
+// ============================================================================
+
+app.get('/users/historico', autenticarJWT, async (req, res) => {
+  try {
+    const {
+      filtro = 'Todos',
+      busca = '',
+      curtido,
+      limit = '30',
+      page = '1',
+    } = req.query;
+
+    const query = { userId: req.userId };
+
+    const filtroNorm = String(filtro).toLowerCase();
+    if (filtroNorm === 'risco' || filtroNorm === 'perigoso') {
+      query.veredito = 'PERIGOSO';
+    } else if (filtroNorm === 'seguro') {
+      query.veredito = 'SEGURO';
+    }
+
+    if (String(curtido).toLowerCase() === 'true') {
+      query.curtido = true;
+    }
+
+    const buscaNorm = normalizar(String(busca || ''));
+    if (buscaNorm) {
+      const rx = new RegExp(escaparRegex(buscaNorm), 'i');
+      query.$or = [{ nomeBusca: rx }, { nomeProduto: rx }, { marcaPeso: rx }];
+    }
+
+    const limiteNum = Math.min(Math.max(parseInt(String(limit), 10) || 30, 1), 100);
+    const paginaNum = Math.max(parseInt(String(page), 10) || 1, 1);
+    const skip = (paginaNum - 1) * limiteNum;
+
+    const [docs, total] = await Promise.all([
+      ScanLog.find(query)
+        .select('-textoBruto -ingredientesDetalhados')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limiteNum)
+        .lean(),
+      ScanLog.countDocuments(query),
+    ]);
+
+    const itens = docs.map((d) => formatarItemHistorico(d, false));
+    const temMais = skip + itens.length < total;
+
+    return res.json({
+      itens,
+      total,
+      pagina: paginaNum,
+      temMais,
+    });
+  } catch (err) {
+    console.error('Erro em GET /users/historico:', err);
+    return res.status(500).json({ erro: 'Erro ao carregar histórico de escaneamentos.' });
+  }
 });
+
+app.get('/users/historico/:id', autenticarJWT, async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(404).json({ erro: 'Registro não encontrado.' });
+    }
+
+    const log = await ScanLog.findById(id).lean();
+    if (!log) {
+      return res.status(404).json({ erro: 'Registro não encontrado.' });
+    }
+
+    if (String(log.userId) !== String(req.userId)) {
+      return res.status(403).json({ erro: 'Acesso negado a este registro.' });
+    }
+
+    return res.json(formatarItemHistorico(log, true));
+  } catch (err) {
+    console.error('Erro em GET /users/historico/:id:', err);
+    return res.status(500).json({ erro: 'Erro ao carregar detalhes do escaneamento.' });
+  }
+});
+
+app.get('/users/historico/:id/imagem', autenticarJWT, async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(404).json({ erro: 'Imagem não encontrada.' });
+    }
+
+    const log = await ScanLog.findById(id).select('userId imagemArquivo').lean();
+    if (!log) {
+      return res.status(404).json({ erro: 'Registro não encontrado.' });
+    }
+
+    if (String(log.userId) !== String(req.userId)) {
+      return res.status(403).json({ erro: 'Acesso negado a esta imagem.' });
+    }
+
+    if (!log.imagemArquivo) {
+      return res.status(404).json({ erro: 'Este escaneamento não possui miniatura salva.' });
+    }
+
+    const caminhoAbsoluto = path.resolve(UPLOADS_DIR, log.imagemArquivo);
+    const baseUploadsResolvida = path.resolve(UPLOADS_DIR);
+    if (!caminhoAbsoluto.startsWith(baseUploadsResolvida) || !fs.existsSync(caminhoAbsoluto)) {
+      return res.status(404).json({ erro: 'Arquivo de imagem não encontrado no servidor.' });
+    }
+
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    res.setHeader('Content-Type', 'image/jpeg');
+    return res.sendFile(caminhoAbsoluto);
+  } catch (err) {
+    console.error('Erro em GET /users/historico/:id/imagem:', err);
+    return res.status(500).json({ erro: 'Erro ao carregar imagem.' });
+  }
+});
+
+app.patch('/users/historico/:id', autenticarJWT, async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(404).json({ erro: 'Registro não encontrado.' });
+    }
+
+    const log = await ScanLog.findById(id);
+    if (!log) {
+      return res.status(404).json({ erro: 'Registro não encontrado.' });
+    }
+    if (String(log.userId) !== String(req.userId)) {
+      return res.status(403).json({ erro: 'Acesso negado a este registro.' });
+    }
+
+    const { nomeProduto, marcaPeso } = req.body || {};
+
+    if (nomeProduto !== undefined) {
+      const limpo = String(nomeProduto).trim();
+      if (!limpo) {
+        return res.status(400).json({ erro: 'O nome do produto não pode ficar vazio.' });
+      }
+      log.nomeProduto = limpo;
+      log.nomeAutomatico = false;
+      log.nomeBusca = normalizar(limpo);
+    }
+
+    if (marcaPeso !== undefined) {
+      log.marcaPeso = marcaPeso ? String(marcaPeso).trim() : null;
+    }
+
+    await log.save();
+    return res.json({
+      sucesso: true,
+      item: formatarItemHistorico(log, true),
+    });
+  } catch (err) {
+    console.error('Erro em PATCH /users/historico/:id:', err);
+    return res.status(500).json({ erro: 'Erro ao atualizar informações do produto.' });
+  }
+});
+
+app.patch('/users/historico/:id/curtir', autenticarJWT, async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(404).json({ erro: 'Registro não encontrado.' });
+    }
+
+    const log = await ScanLog.findById(id);
+    if (!log) {
+      return res.status(404).json({ erro: 'Registro não encontrado.' });
+    }
+    if (String(log.userId) !== String(req.userId)) {
+      return res.status(403).json({ erro: 'Acesso negado a este registro.' });
+    }
+
+    if (typeof req.body?.curtido === 'boolean') {
+      log.curtido = req.body.curtido;
+    } else {
+      log.curtido = !log.curtido;
+    }
+
+    await log.save();
+    return res.json({
+      sucesso: true,
+      curtido: log.curtido,
+      item: formatarItemHistorico(log, true),
+    });
+  } catch (err) {
+    console.error('Erro em PATCH /users/historico/:id/curtir:', err);
+    return res.status(500).json({ erro: 'Erro ao atualizar favorito.' });
+  }
+});
+
+// ============================================================================
+// ROTA DO SCANNER OCR (JWT)
+// ============================================================================
+
+async function handlerScanner(req, res) {
+  if (!req.file) {
+    return res.status(400).json({ erro: 'Nenhuma imagem foi enviada para análise.' });
+  }
+
+  const caminhoTemp = req.file.path;
+
+  try {
+    const user = await User.findById(req.userId);
+    if (!user) {
+      return res.status(404).json({ erro: 'Usuário não encontrado.' });
+    }
+
+    const textoExtraido = await extrairTextoDaImagem(caminhoTemp);
+
+    const analise = await analisarTextoRotulo({
+      textoBruto: textoExtraido,
+      restricoes: user.restricoes,
+      niveisSensibilidade: user.niveisSensibilidade,
+    });
+
+    const nomesAlergenosLog =
+      analise.alergicosDetectados.length > 0
+        ? analise.alergicosDetectados
+            .map(
+              (a) =>
+                `${a.categoria.toUpperCase()} (${a.tipo}): [${(a.termos || []).join(', ')}]`
+            )
+            .join(' | ')
+        : 'Nenhum alérgeno restrito detectado';
+
+    console.log('\n======================================================================');
+    console.log(' [ROTUSCAN OCR] NOVA ANÁLISE DE RÓTULO RECEBIDA');
+    console.log('======================================================================');
+    console.log(` • Usuário           : ${user.nome} (ID: ${user._id})`);
+    console.log(
+      ` • Restrições Ativas : ${
+        user.restricoes?.length ? user.restricoes.join(', ') : 'Nenhuma'
+      }`
+    );
+    console.log(
+      ` • Sensibilidade     : Glúten=${user.niveisSensibilidade?.gluten ?? 1} | Lactose=${
+        user.niveisSensibilidade?.lactose ?? 1
+      } | Amendoim=${user.niveisSensibilidade?.amendoim ?? 1}`
+    );
+    console.log('----------------------------------------------------------------------');
+    console.log(' • TEXTO BRUTO LIDO PELO TESSERACT OCR:');
+    console.log(analise.textoBruto ? analise.textoBruto : '(Vazio / ilegível)');
+    console.log('----------------------------------------------------------------------');
+    console.log(` • Alérgenos/Sinônimos Detectados : ${nomesAlergenosLog}`);
+    console.log(` • VEREDITO FINAL                 : ${analise.veredito}`);
+    console.log('======================================================================\n');
+
+    if (analise.veredito === 'INCONCLUSIVO') {
+      return res.status(200).json({
+        veredito: 'INCONCLUSIVO',
+        status: 'INCONCLUSIVO',
+        textoBruto: analise.textoBruto,
+        mensagem:
+          'Não consegui ler com segurança. Aproxime a câmera da lista de ingredientes com boa iluminação.',
+      });
+    }
+
+    const logId = new mongoose.Types.ObjectId();
+    const userIdStr = String(user._id);
+    let imagemArquivoRelativo = null;
+
+    // Salva miniatura comprimida (falha na miniatura nunca derruba a análise)
+    try {
+      const dirUsuario = path.join(SCANS_UPLOADS_DIR, userIdStr);
+      if (!fs.existsSync(dirUsuario)) {
+        await fs.promises.mkdir(dirUsuario, { recursive: true });
+      }
+      const nomeArquivo = `${logId}.jpg`;
+      const caminhoFinalThumb = path.join(dirUsuario, nomeArquivo);
+
+      await sharp(caminhoTemp)
+        .rotate()
+        .resize({ width: 480, withoutEnlargement: true })
+        .jpeg({ quality: 70 })
+        .toFile(caminhoFinalThumb);
+
+      imagemArquivoRelativo = path.posix.join('scans', userIdStr, nomeArquivo);
+    } catch (thumbErr) {
+      console.warn('Aviso: falha ao salvar miniatura do scan:', thumbErr.message);
+    }
+
+    const novoLog = await ScanLog.create({
+      _id: logId,
+      userId: user._id,
+      nomeProduto: analise.nomeProduto,
+      nomeAutomatico: true,
+      nomeBusca: analise.nomeBusca,
+      marcaPeso: null,
+      imagemArquivo: imagemArquivoRelativo,
+      imagemDemo: null,
+      textoBruto: analise.textoBruto,
+      veredito: analise.veredito,
+      alergicosDetectados: analise.alergicosDetectados,
+      ingredientesDetalhados: analise.ingredientesDetalhados,
+      curtido: false,
+      seed: false,
+    });
+
+    const itemFormatado = formatarItemHistorico(novoLog, true);
+    return res.status(200).json({
+      ...itemFormatado,
+      status: analise.veredito,
+      textoExtraido: analise.textoBruto,
+      detalhes: analise.alergicosDetectados.map((a) => ({
+        categoria: a.categoria,
+        tipo: a.tipo,
+        encontrados: a.termos,
+      })),
+    });
+  } catch (err) {
+    if (err?.code === 'OCR_UNAVAILABLE') {
+      console.error('Erro de OCR no servidor:', err.detalhe);
+      return res.status(500).json({
+        erro: 'OCR indisponível no servidor',
+        detalhe: err.detalhe,
+        instrucoesWindows: err.instrucoesWindows,
+      });
+    }
+    console.error('Erro no processamento do scanner:', err);
+    return res.status(500).json({ erro: 'Falha ao processar a imagem do rótulo.' });
+  } finally {
+    try {
+      if (caminhoTemp && fs.existsSync(caminhoTemp)) {
+        await fs.promises.unlink(caminhoTemp);
+      }
+    } catch {
+      // ignora erro de remoção do arquivo temporário do multer
+    }
+  }
+}
+
+app.post(
+  '/scanner',
+  autenticarJWT,
+  (req, res, next) => {
+    upload.single('photo')(req, res, (err) => {
+      if (err) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(400).json({ erro: 'A imagem excede o limite máximo de 8MB.' });
+        }
+        return res.status(400).json({ erro: err.message || 'Erro no envio da imagem.' });
+      }
+      return next();
+    });
+  },
+  handlerScanner
+);
+
+app.post(
+  '/api/analisar-rotulo',
+  autenticarJWT,
+  (req, res, next) => {
+    upload.single('imagem')(req, res, (err) => {
+      if (err) {
+        return res.status(400).json({ erro: err.message || 'Erro no envio da imagem.' });
+      }
+      return next();
+    });
+  },
+  handlerScanner
+);
+
+// ============================================================================
+// SINCRONIZAÇÃO NÃO-DESTRUTIVA DE USUÁRIOS LEGADOS NA INICIALIZAÇÃO
+// ============================================================================
+
+async function sincronizarUsuariosLegados() {
+  try {
+    const dbRotuScanDB = mongoose.connection.db;
+    const client = mongoose.connection.getClient();
+
+    // 1. Normaliza documentos existentes em RotuScanDB.users
+    const usersAtuais = await User.find();
+    for (const u of usersAtuais) {
+      let mudou = false;
+      const validado = validarRestricoesENiveis(
+        Array.isArray(u.restricoes) ? u.restricoes : [],
+        u.niveisSensibilidade,
+        false
+      );
+      if (
+        !u.niveisSensibilidade ||
+        typeof u.niveisSensibilidade.gluten !== 'number' ||
+        typeof u.niveisSensibilidade.lactose !== 'number' ||
+        typeof u.niveisSensibilidade.amendoim !== 'number'
+      ) {
+        u.niveisSensibilidade = validado.niveisSensibilidade || {
+          gluten: 1,
+          lactose: 1,
+          amendoim: 1,
+        };
+        mudou = true;
+      }
+      if (u.avatar === undefined) {
+        u.avatar = null;
+        mudou = true;
+      }
+      if (mudou) {
+        await u.save();
+      }
+    }
+
+    // 2. Copia de forma idempotente contas de coleções legadas `usuarios` para `RotuScanDB.users`
+    const colecoesFonte = [];
+    const colsMain = await dbRotuScanDB.listCollections({ name: 'usuarios' }).toArray();
+    if (colsMain.length > 0) {
+      colecoesFonte.push(dbRotuScanDB.collection('usuarios'));
+    }
+
+    try {
+      const dbLegado = client.db('RotuScan');
+      const colsLegado = await dbLegado.listCollections({ name: 'usuarios' }).toArray();
+      if (colsLegado.length > 0) {
+        colecoesFonte.push(dbLegado.collection('usuarios'));
+      }
+    } catch {
+      // Ignora se não houver acesso ao banco paralelo
+    }
+
+    let migrados = 0;
+    for (const col of colecoesFonte) {
+      const docs = await col.find({}).toArray();
+      for (const doc of docs) {
+        const emailLimpo = String(doc.email || '').trim().toLowerCase();
+        if (!emailLimpo || !doc.senha) continue;
+
+        const jaExiste = await User.findOne({ email: emailLimpo }).lean();
+        if (jaExiste) continue;
+
+        let senhaFinal = String(doc.senha);
+        if (!/^\$2[aby]\$/.test(senhaFinal)) {
+          const salt = await bcrypt.genSalt(10);
+          senhaFinal = await bcrypt.hash(senhaFinal, salt);
+        }
+
+        const validado = validarRestricoesENiveis(
+          Array.isArray(doc.restricoes) ? doc.restricoes : [],
+          doc.niveisSensibilidade,
+          false
+        );
+
+        await User.collection.insertOne({
+          nome: String(doc.nome || 'Usuário').trim(),
+          email: emailLimpo,
+          senha: senhaFinal,
+          avatar: doc.avatar || null,
+          restricoes: validado.restricoes || [],
+          niveisSensibilidade: validado.niveisSensibilidade || {
+            gluten: 1,
+            lactose: 1,
+            amendoim: 1,
+          },
+          createdAt: doc.createdAt || doc.dataCriacao || new Date(),
+          updatedAt: new Date(),
+        });
+        migrados += 1;
+      }
+    }
+
+    if (migrados > 0) {
+      console.log(`Sincronização inicial: ${migrados} conta(s) legada(s) copiada(s) para RotuScanDB.users.`);
+    }
+  } catch (err) {
+    console.warn('Aviso ao sincronizar usuários legados:', err.message);
+  }
+}
+
+// ============================================================================
+// CONEXÃO COM O MONGODB E INICIALIZAÇÃO DO SERVIDOR
+// ============================================================================
+
+const MONGO_URI = process.env.MONGO_URI || process.env.MONGODB_URI;
+const PORT = process.env.PORT || 3000;
+
+if (!MONGO_URI) {
+  console.error('ERRO: Variável MONGO_URI / MONGODB_URI não definida no arquivo .env.');
+  process.exit(1);
+}
+
+mongoose
+  .connect(MONGO_URI, { dbName: 'RotuScanDB' })
+  .then(async () => {
+    console.log('Conectado ao MongoDB Atlas (RotuScanDB) com sucesso.');
+    await inicializarDicionarioPadrao();
+    await sincronizarUsuariosLegados();
+
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`Servidor rodando na porta ${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error('Erro ao conectar ao MongoDB:', err.message);
+    process.exit(1);
+  });
+
+export default app;
