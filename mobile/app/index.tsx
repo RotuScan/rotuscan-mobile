@@ -36,8 +36,8 @@ export default function LoginScreen() {
   const backgroundImage = require("../assets/images/Fundo.png");
 
   // ESTADOS PARA OS CAMPOS DE LOGIN
-  const [email, setEmail] = useState("rendrew8@gmail.com");
-  const [senha, setSenha] = useState("12345678910");
+  const [email, setEmail] = useState("");
+  const [senha, setSenha] = useState("");
   const [mostrarSenha, setMostrarSenha] = useState(false);
 
   if (!fontsLoaded) {
@@ -176,7 +176,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
 
-  // LOGO
   logoContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -196,7 +195,7 @@ const styles = StyleSheet.create({
     color: "#F8A018",
   },
 
-  // CARD DE LOGIN
+
   loginCard: {
     width: "100%",
     maxWidth: 380,
@@ -270,7 +269,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  // BOTÃO ENTRAR
   loginButton: {
     width: "100%",
     height: 46,
@@ -286,7 +284,7 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
   },
 
-  // CADASTRO LINK
+  
   registerContainer: {
     flexDirection: "row",
     justifyContent: "center",
