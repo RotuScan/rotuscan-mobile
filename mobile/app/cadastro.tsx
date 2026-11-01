@@ -1,265 +1,352 @@
 import React, { useState } from "react";
 import {
-  Image,
-  ScrollView,
+  Dimensions,
+  ImageBackground,
+  StatusBar,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
   Alert,
-  ActivityIndicator
+  ActivityIndicator,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import {
+  Geist_400Regular,
+  Geist_500Medium,
+  Geist_600SemiBold,
+  Geist_700Bold,
+} from "@expo-google-fonts/geist";
+import { useFonts } from "@expo-google-fonts/geist/useFonts";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-// Importando sua conexão com o servidor e cores
 import api from "../services/api";
-import { Colors } from "../constants/theme";
+
+const { width } = Dimensions.get("window");
+const backgroundImage = require("../assets/images/Fundo.png");
 
 export default function CadastroScreen() {
   const router = useRouter();
 
-  // Estados dos campos
+  const [fontsLoaded] = useFonts({
+    Geist_400Regular,
+    Geist_500Medium,
+    Geist_600SemiBold,
+    Geist_700Bold,
+  });
+
   const [nome, setNome] = useState("");
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
-  const [confirmarSenha, setConfirmarSenha] = useState("");
-  
-  // Estados dos "olhinhos" da senha
-  const [senhaVisivel, setSenhaVisivel] = useState(false);
-  const [confirmarVisivel, setConfirmarVisivel] = useState(false);
-  
+  const [repetirSenha, setRepetirSenha] = useState("");
+  const [mostrarSenha, setMostrarSenha] = useState(false);
+  const [mostrarRepetirSenha, setMostrarRepetirSenha] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // Processamento do cadastro no backend
   const handleCadastro = async () => {
-    // 1. Valida se preencheu tudo
-    if (!nome || !email || !senha || !confirmarSenha) {
-      Alert.alert("Atenção", "Por favor, preencha todos os campos.");
-      return;
+    if (!nome.trim() || !email.trim() || !senha || !repetirSenha) {
+      return Alert.alert("Atenção", "Por favor, preencha todos os campos.");
     }
 
-    // 2. Valida se as senhas são iguais
-    if (senha !== confirmarSenha) {
-      Alert.alert("Atenção", "As senhas não coincidem!");
-      return;
+    if (senha !== repetirSenha) {
+      return Alert.alert("Atenção", "As senhas não coincidem!");
     }
 
     setLoading(true);
-
     try {
-      // Requisição para persistência no MongoDB
-      const response = await api.post('/api/cadastro', { 
-        nome: nome, 
-        email: email, 
-        senha: senha 
+      const response = await api.post("/auth/register", {
+        nome,
+        email,
+        senha,
       });
 
-      Alert.alert("Sucesso", "Conta criada com sucesso!", [
-        { text: "OK", onPress: () => router.replace("/") } 
-      ]);
+      const { token, usuario } = response.data;
 
+      // Salva a sessão JWT imediatamente para permitir salvar as restrições na próxima tela
+      await AsyncStorage.setItem("@rotuscan_token", token);
+      await AsyncStorage.setItem("@usuario_id", usuario.id);
+      await AsyncStorage.setItem("@usuario_nome", usuario.nome);
+      await AsyncStorage.setItem("@usuario_email", usuario.email);
+
+      // Redireciona para a seleção de intolerâncias do colega (ou home caso não exista ainda)
+      router.replace("/selectIntolerancia");
     } catch (error: any) {
-      console.error("Erro no processo de cadastro:");
-      
       if (error.response) {
-        // Erro retornado pelo servidor
-        console.error("Status do Erro:", error.response.status);
-        console.error("Mensagem do Servidor:", error.response.data);
-        Alert.alert("Erro", error.response.data.erro);
-      } else if (error.request) {
-        // Erro de rede ou indisponibilidade do servidor
-        console.error("Sem resposta do servidor. Verifique a conexao e o IP configurado.");
-        Alert.alert("Erro de Rede", "Não foi possível conectar ao servidor. Verifique sua conexão.");
+        Alert.alert("Erro no Cadastro", error.response.data.erro || "Falha ao criar conta.");
       } else {
-        console.error("Mensagem:", error.message);
-        Alert.alert("Erro", "Erro desconhecido ao tentar cadastrar.");
+        Alert.alert(
+          "Erro de Rede",
+          "Não foi possível conectar ao servidor. Verifique o IP e o Wi-Fi."
+        );
       }
     } finally {
       setLoading(false);
     }
   };
 
+  if (!fontsLoaded) {
+    return null;
+  }
+
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <View style={styles.containerLogo}>
-        <Image
-          style={styles.logo}
-          source={require("../assets/images/logo.png")}
-        />
-        <Text style={styles.titleRotuScan}>
-          <Text style={{ color: "#2D7A5D" }}>Rotu</Text>
-          <Text style={{ color: Colors.light.primary }}>Scan</Text>
-        </Text>
-      </View>
+    <ImageBackground
+      source={backgroundImage}
+      resizeMode="cover"
+      style={styles.background}
+    >
+      <SafeAreaView style={styles.container}>
+        <StatusBar barStyle="dark-content" />
 
-      <Text style={styles.title}>Crie sua conta</Text>
+        <View style={styles.logoContainer}>
+          <Text style={styles.logoRotu}>Rotu</Text>
+          <Text style={styles.logoScan}>Scan</Text>
+        </View>
 
-      {/* Campo Nome */}
-      <Text style={styles.label}>Nome</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="Digite seu nome"
-        value={nome}
-        onChangeText={setNome}
-      />
+        <View style={styles.loginCard}>
+          <Text style={styles.label}>Usuário (Nome completo)</Text>
+          <View style={styles.inputContainer}>
+            <Ionicons
+              name="person-outline"
+              size={16}
+              color="#737D8D"
+              style={styles.inputIcon}
+            />
+            <TextInput
+              value={nome}
+              onChangeText={setNome}
+              placeholder="Digite seu nome"
+              placeholderTextColor="#9EA5B1"
+              autoCapitalize="words"
+              autoCorrect={false}
+              style={styles.input}
+            />
+          </View>
 
-      {/* Campo Email */}
-      <Text style={styles.label}>Email</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="seunome@gmail.com"
-        keyboardType="email-address"
-        autoCapitalize="none"
-        value={email}
-        onChangeText={setEmail}
-      />
+          <Text style={styles.label}>E-mail</Text>
+          <View style={styles.inputContainer}>
+            <Ionicons
+              name="mail-outline"
+              size={16}
+              color="#737D8D"
+              style={styles.inputIcon}
+            />
+            <TextInput
+              value={email}
+              onChangeText={setEmail}
+              placeholder="seunome@email.com"
+              placeholderTextColor="#9EA5B1"
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              style={styles.input}
+            />
+          </View>
 
-      {/* Campo Senha */}
-      <Text style={styles.label}>Senha</Text>
-      <View style={styles.inputContainer}>
-        <TextInput
-          style={styles.inputFlex}
-          placeholder="Digite uma senha"
-          secureTextEntry={!senhaVisivel}
-          value={senha}
-          onChangeText={setSenha}
-        />
-        <TouchableOpacity onPress={() => setSenhaVisivel(!senhaVisivel)}>
-          <Ionicons
-            name={senhaVisivel ? "eye-off-outline" : "eye-outline"}
-            size={20}
-            color="#777"
-          />
-        </TouchableOpacity>
-      </View>
+          <Text style={styles.label}>Senha</Text>
+          <View style={styles.inputContainer}>
+            <Ionicons
+              name="lock-closed-outline"
+              size={16}
+              color="#737D8D"
+              style={styles.inputIcon}
+            />
+            <TextInput
+              value={senha}
+              onChangeText={setSenha}
+              placeholder="Crie uma senha"
+              placeholderTextColor="#9EA5B1"
+              secureTextEntry={!mostrarSenha}
+              autoCapitalize="none"
+              autoCorrect={false}
+              style={styles.input}
+            />
+            <TouchableOpacity
+              onPress={() => setMostrarSenha(!mostrarSenha)}
+              style={styles.eyeButton}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name={mostrarSenha ? "eye-off-outline" : "eye-outline"}
+                size={18}
+                color="#9AA3B2"
+              />
+            </TouchableOpacity>
+          </View>
 
-      {/* Campo Confirmar Senha */}
-      <Text style={styles.label}>Confirmar senha</Text>
-      <View style={styles.inputContainer}>
-        <TextInput
-          style={styles.inputFlex}
-          placeholder="Repita a senha"
-          secureTextEntry={!confirmarVisivel}
-          value={confirmarSenha}
-          onChangeText={setConfirmarSenha}
-        />
-        <TouchableOpacity onPress={() => setConfirmarVisivel(!confirmarVisivel)}>
-          <Ionicons
-            name={confirmarVisivel ? "eye-off-outline" : "eye-outline"}
-            size={20}
-            color="#777"
-          />
-        </TouchableOpacity>
-      </View>
+          <Text style={styles.label}>Repita a senha</Text>
+          <View style={styles.inputContainer}>
+            <Ionicons
+              name="lock-closed-outline"
+              size={16}
+              color="#737D8D"
+              style={styles.inputIcon}
+            />
+            <TextInput
+              value={repetirSenha}
+              onChangeText={setRepetirSenha}
+              placeholder="Repita a senha"
+              placeholderTextColor="#9EA5B1"
+              secureTextEntry={!mostrarRepetirSenha}
+              autoCapitalize="none"
+              autoCorrect={false}
+              style={styles.input}
+            />
+            <TouchableOpacity
+              onPress={() => setMostrarRepetirSenha(!mostrarRepetirSenha)}
+              style={styles.eyeButton}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name={mostrarRepetirSenha ? "eye-off-outline" : "eye-outline"}
+                size={18}
+                color="#9AA3B2"
+              />
+            </TouchableOpacity>
+          </View>
 
-      {/* Botão Criar Conta */}
-      <TouchableOpacity 
-        style={styles.button}
-        onPress={handleCadastro}
-        disabled={loading}
-      >
-        {loading ? (
-          <ActivityIndicator size="small" color="#FFF" />
-        ) : (
-          <Text style={styles.buttonText}>Criar conta</Text>
-        )}
-      </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.loginButton}
+            activeOpacity={0.85}
+            onPress={handleCadastro}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <>
+                <Text style={styles.loginButtonText}>Próximo</Text>
+                <Ionicons
+                  name="arrow-forward"
+                  size={16}
+                  color="#FFFFFF"
+                  style={styles.arrow}
+                />
+              </>
+            )}
+          </TouchableOpacity>
 
-      {/* Footer */}
-      <View style={styles.footerContainer}>
-        <Text style={styles.footerText}>Já possui uma conta? </Text>
-        <TouchableOpacity onPress={() => router.replace("/")}>
-          <Text style={styles.loginText}>Login</Text>
-        </TouchableOpacity>
-      </View>
-    </ScrollView>
+          <View style={styles.registerContainer}>
+            <Text style={styles.registerText}>Já tem conta? </Text>
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() => router.replace("/")}
+            >
+              <Text style={styles.registerLink}>Login</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </SafeAreaView>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    padding: 24,
-    backgroundColor: "#fff",
-    flexGrow: 1,
-    justifyContent: "center",
+  background: {
+    flex: 1,
+    width: "100%",
+    height: "100%",
   },
-  containerLogo: {
+  container: {
+    flex: 1,
+    backgroundColor: "transparent",
+    alignItems: "center",
+  },
+  logoContainer: {
+    marginTop: 95,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 20,
   },
-  logo: {
-    width: 60,
-    height: 60,
-    marginRight: 10,
-    resizeMode: "contain",
+  logoRotu: {
+    fontFamily: "Geist_700Bold",
+    fontSize: 44,
+    color: "#006B3A",
   },
-  titleRotuScan: {
-    fontSize: 32,
-    fontWeight: "bold",
+  logoScan: {
+    fontFamily: "Geist_700Bold",
+    fontSize: 44,
+    color: "#F8A018",
   },
-  title: {
-    textAlign: "center",
-    color: Colors.light.primary,
-    fontSize: 22,
-    fontWeight: "700",
-    marginBottom: 30,
+  loginCard: {
+    marginTop: 15,
+    width: width * 0.9,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    paddingHorizontal: 20,
+    paddingTop: 24,
+    paddingBottom: 24,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 15,
+    elevation: 5,
   },
   label: {
-    color: Colors.light.primary,
-    fontSize: 14,
+    fontFamily: "Geist_600SemiBold",
+    fontSize: 12,
+    color: "#374151",
     marginBottom: 6,
-    marginTop: 12,
-    fontWeight: "600",
-  },
-  input: {
-    borderWidth: 1,
-    borderRadius: 8,
-    padding: 14,
-    fontSize: 14,
-    backgroundColor: "#FFF",
-    borderColor: "#E0E0E0",
   },
   inputContainer: {
+    width: "100%",
+    height: 46,
+    borderWidth: 1,
+    borderColor: "#E3E6EA",
+    borderRadius: 23,
     flexDirection: "row",
     alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#E0E0E0",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    backgroundColor: "#FFF",
+    paddingHorizontal: 14,
+    backgroundColor: "#FFFFFF",
+    marginBottom: 14,
   },
-  inputFlex: {
+  inputIcon: {
+    marginRight: 8,
+  },
+  input: {
     flex: 1,
-    paddingVertical: 14,
-    fontSize: 14,
+    height: "100%",
+    fontFamily: "Geist_400Regular",
+    fontSize: 13,
+    color: "#374151",
   },
-  button: {
-    backgroundColor: Colors.light.primary,
-    padding: 16,
-    borderRadius: 10,
-    marginTop: 30,
+  eyeButton: {
+    padding: 4,
+  },
+  loginButton: {
+    width: "100%",
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#24C95B",
     alignItems: "center",
-    elevation: 2, 
+    justifyContent: "center",
+    flexDirection: "row",
+    marginTop: 6,
+    marginBottom: 18,
   },
-  buttonText: {
-    color: "#FFF",
-    fontWeight: "bold",
-    fontSize: 16,
+  loginButtonText: {
+    fontFamily: "Geist_600SemiBold",
+    fontSize: 15,
+    color: "#FFFFFF",
   },
-  footerContainer: {
+  arrow: {
+    marginLeft: 6,
+  },
+  registerContainer: {
     flexDirection: "row",
     justifyContent: "center",
-    marginTop: 20,
+    alignItems: "center",
   },
-  footerText: {
-    color: "#777",
+  registerText: {
+    fontFamily: "Geist_400Regular",
+    fontSize: 13,
+    color: "#9CA3AF",
   },
-  loginText: {
-    color: Colors.light.primary,
-    fontWeight: "bold",
+  registerLink: {
+    fontFamily: "Geist_700Bold",
+    fontSize: 13,
+    color: "#008B5E",
   },
 });
