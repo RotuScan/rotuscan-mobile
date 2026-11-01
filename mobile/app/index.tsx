@@ -47,7 +47,7 @@ export default function LoginScreen() {
       const token = await AsyncStorage.getItem("@rotuscan_token");
       const id = await AsyncStorage.getItem("@usuario_id");
       if (token && id) {
-        router.replace("/(tabs)/home");
+        router.replace("/home" as never);
       }
     };
     verificarSessao();
@@ -60,25 +60,43 @@ export default function LoginScreen() {
 
     setLoading(true);
     try {
-      // Conecta na nova rota modular POST /auth/login
       const response = await api.post("/auth/login", { email, senha });
       const { token, usuario } = response.data;
+      const listaRestricoes: string[] = usuario.restricoes || [];
 
-      // Salva o Token JWT e os dados do perfil no AsyncStorage
       await AsyncStorage.setItem("@rotuscan_token", token);
-      await AsyncStorage.setItem("@usuario_id", usuario.id);
+      await AsyncStorage.setItem("@usuario_id", String(usuario.id));
       await AsyncStorage.setItem("@usuario_nome", usuario.nome);
       await AsyncStorage.setItem("@usuario_email", usuario.email);
       await AsyncStorage.setItem(
         "@usuario_restricoes",
-        JSON.stringify(usuario.restricoes || [])
+        JSON.stringify(listaRestricoes)
+      );
+      await AsyncStorage.setItem(
+        "@restricao_gluten",
+        String(listaRestricoes.includes("gluten"))
+      );
+      await AsyncStorage.setItem(
+        "@restricao_lactose",
+        String(listaRestricoes.includes("lactose"))
+      );
+      await AsyncStorage.setItem(
+        "@restricao_amendoim",
+        String(listaRestricoes.includes("amendoim"))
       );
 
-      router.replace("/(tabs)/home");
+      router.replace("/home" as never);
     } catch (error: any) {
-      const mensagem =
-        error.response?.data?.erro || "E-mail ou senha incorretos.";
-      Alert.alert("Erro no Login", mensagem);
+      if (error.response) {
+        const mensagem =
+          error.response?.data?.erro || "E-mail ou senha incorretos.";
+        Alert.alert("Erro no Login", mensagem);
+      } else {
+        Alert.alert(
+          "Erro de Rede",
+          "Não foi possível conectar ao servidor. Verifique se o server está rodando e o IP da rede."
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -95,7 +113,7 @@ export default function LoginScreen() {
       style={styles.background}
     >
       <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="dark-content" backgroundColor="#F5F6F8" />
+        <StatusBar barStyle="dark-content" />
 
         {/* LOGO */}
         <View style={styles.logoContainer}>
@@ -182,7 +200,7 @@ export default function LoginScreen() {
             <Text style={styles.registerText}>Não tem conta? </Text>
             <TouchableOpacity
               activeOpacity={0.7}
-              onPress={() => router.push("/cadastro")}
+              onPress={() => router.push("/cadastro" as never)}
             >
               <Text style={styles.registerLink}>Cadastre-se</Text>
             </TouchableOpacity>

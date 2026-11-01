@@ -5,7 +5,7 @@ const api = axios.create({
   /* IMPORTANTE PARA A BANCA: 
      Use o IPv4 da sua máquina na rede Wi-Fi local.
   */
-  baseURL: 'http://192.168.1.3:3000',
+  baseURL: 'http://192.168.1.8:3000',
   timeout: 15000,
 });
 

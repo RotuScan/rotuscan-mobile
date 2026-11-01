@@ -98,7 +98,7 @@ export default function CadastroScreen() {
       style={styles.background}
     >
       <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="dark-content" backgroundColor="#F8F9FA" />
+        <StatusBar barStyle="dark-content" />
 
         <View style={styles.logoContainer}>
           <Text style={styles.logoRotu}>Rotu</Text>

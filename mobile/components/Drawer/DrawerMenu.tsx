@@ -1,15 +1,16 @@
 import { Feather } from "@expo/vector-icons";
 import { router } from "expo-router";
-import React from "react";
+import React, { useEffect, useState } from "react";
 import {
-    Dimensions,
-    Image,
-    Modal,
-    Pressable,
-    Text,
-    TouchableOpacity,
-    View,
+  Alert,
+  Image,
+  Modal,
+  Pressable,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { styles } from "./styleDrawer";
 
 type DrawerMenuProps = {
@@ -17,47 +18,80 @@ type DrawerMenuProps = {
   onClose: () => void;
 };
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const DRAWER_WIDTH = Math.min(SCREEN_WIDTH * 0.78, 300);
-
 const MENU_ITEMS = [
   {
     id: "perfil",
     label: "Perfil",
     icon: "user",
-    route: "../perfil",
+    route: "/perfil",
   },
   {
     id: "favoritos",
     label: "Favoritos",
     icon: "heart",
-    route: "../favoritos",
+    route: "/itensCurtidos",
   },
   {
     id: "historico",
     label: "Histórico",
     icon: "rotate-ccw",
-    route: "../historico",
+    route: "/historico",
   },
   {
     id: "configuracoes",
     label: "Definições",
     icon: "settings",
-    route: "../configuracoes",
+    route: "/editar-perfil",
   },
 ] as const;
 
 export default function DrawerMenu({ visible, onClose }: DrawerMenuProps) {
+  const [nomeUsuario, setNomeUsuario] = useState("Endrew R Lemos");
+
+  useEffect(() => {
+    if (visible) {
+      AsyncStorage.getItem("@usuario_nome").then((nome) => {
+        if (nome && nome.trim()) {
+          setNomeUsuario(nome);
+        }
+      });
+    }
+  }, [visible]);
+
   function navegarPara(route: string) {
     onClose();
     router.push(route as never);
   }
 
   function sair() {
-    onClose();
-
-    // Adicione aqui a lógica de logout da autenticação.
-    router.replace("../login");
+    Alert.alert(
+      "Sair da conta",
+      "Deseja realmente sair da sua conta?",
+      [
+        {
+          text: "Cancelar",
+          style: "cancel",
+        },
+        {
+          text: "Sair",
+          style: "destructive",
+          onPress: async () => {
+            onClose();
+            await AsyncStorage.multiRemove([
+              "@rotuscan_token",
+              "@usuario_id",
+              "@usuario_nome",
+              "@usuario_email",
+              "@usuario_restricoes",
+              "@restricao_gluten",
+              "@restricao_lactose",
+              "@restricao_amendoim",
+            ]);
+            router.replace("/" as never);
+          },
+        },
+      ]
+    );
   }
 
   return (
@@ -74,15 +108,14 @@ export default function DrawerMenu({ visible, onClose }: DrawerMenuProps) {
         <View style={styles.drawer}>
           <View style={styles.profile}>
             <View style={styles.avatarContainer}>
-          {/* PERFIL   
               <Image
-                source={require("../images/user.png")}
+                source={require("../../assets/images/user.png")}
                 style={styles.avatar}
                 resizeMode="cover"
-              /> */}
+              />
             </View>
 
-            <Text style={styles.userName}>Endrew R Lemos</Text>
+            <Text style={styles.userName}>{nomeUsuario}</Text>
           </View>
 
           {/* MENU */}
@@ -112,13 +145,10 @@ export default function DrawerMenu({ visible, onClose }: DrawerMenuProps) {
             </TouchableOpacity>
           </View>
 
-
-
-           <Image
-                source={require("../../images/Drawer.png")}
-               style={styles.drawerImage}
-              /> 
-          
+          <Image
+            source={require("../../assets/images/Drawer.png")}
+            style={styles.drawerImage}
+          />
         </View>
       </View>
     </Modal>

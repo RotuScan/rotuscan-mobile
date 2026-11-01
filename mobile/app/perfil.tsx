@@ -6,7 +6,7 @@ import {
 } from "@expo-google-fonts/geist";
 import { useFonts } from "@expo-google-fonts/geist/useFonts";
 import { Feather, Ionicons } from "@expo/vector-icons";
-import { useRouter, useFocusEffect } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import React, { useState, useCallback } from "react";
 import {
   ActivityIndicator,
@@ -22,6 +22,8 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
+import AppHeader from "../components/Header/AppHeader";
+import TabBar from "@/components/TabBar/indexTab";
 import api from "../services/api";
 
 const COLORS = {
@@ -52,10 +54,6 @@ const MAPA_NOMES: Record<string, string> = {
 };
 
 export default function PerfilScreen() {
-  const router = useRouter();
-  const { width } = useWindowDimensions();
-  const cardWidth = Math.min(width - 32, 440);
-
   const [fontsLoaded] = useFonts({
     Geist_400Regular,
     Geist_500Medium,
@@ -63,12 +61,19 @@ export default function PerfilScreen() {
     Geist_700Bold,
   });
 
-  // Estados dinâmicos integrados ao AsyncStorage e à API
-  const [nome, setNome] = useState("Usuário");
-  const [email, setEmail] = useState("usuario@email.com");
-  const [intolerancias, setIntolerancias] = useState<string[]>([]);
-  const [totalAnalises, setTotalAnalises] = useState(0);
-  const [totalSeguros, setTotalSeguros] = useState(0);
+  const [drawerVisible, setDrawerVisible] = useState(false);
+  const { width } = useWindowDimensions();
+
+  const cardWidth = Math.min(width - 32, 440);
+
+  const [nome, setNome] = useState("Endrew");
+  const [email, setEmail] = useState("endrew.bis...@email.com");
+  const [intolerancias, setIntolerancias] = useState<string[]>([
+    "Glúten",
+    "Lactose",
+  ]);
+  const [totalAnalises, setTotalAnalises] = useState(45);
+  const [totalSeguros, setTotalSeguros] = useState(45);
 
   useFocusEffect(
     useCallback(() => {
@@ -76,33 +81,23 @@ export default function PerfilScreen() {
         try {
           const nomeSalvo = await AsyncStorage.getItem("@usuario_nome");
           const emailSalvo = await AsyncStorage.getItem("@usuario_email");
-          if (nomeSalvo) setNome(nomeSalvo);
-          if (emailSalvo) setEmail(emailSalvo);
+          if (nomeSalvo && nomeSalvo.trim()) setNome(nomeSalvo);
+          if (emailSalvo && emailSalvo.trim()) setEmail(emailSalvo);
 
-          // 1. Tenta carregar o array JSON salvo pela tela selectIntolerancia.tsx
           const restricoesJson = await AsyncStorage.getItem("@usuario_restricoes");
-          let listaAtiva: string[] = [];
-
           if (restricoesJson) {
             const parsed: string[] = JSON.parse(restricoesJson);
-            listaAtiva = parsed.map((item) => MAPA_NOMES[item.toLowerCase()] || item);
-          } else {
-            // 2. Fallback compatível com o formato antigo (@restricao_key)
-            const keys = ["gluten", "lactose", "amendoim"];
-            for (const key of keys) {
-              const val = await AsyncStorage.getItem(`@restricao_${key}`);
-              if (val === "true") {
-                listaAtiva.push(MAPA_NOMES[key]);
-              }
+            if (parsed.length > 0) {
+              setIntolerancias(
+                parsed.map((item) => MAPA_NOMES[item.toLowerCase()] || item)
+              );
             }
           }
-          setIntolerancias(listaAtiva);
 
-          // 3. Busca contagem real de escaneamentos no Back-end (se conectado)
           const userId = await AsyncStorage.getItem("@usuario_id");
           if (userId) {
             const res = await api.get(`/users/historico/${userId}`).catch(() => null);
-            if (res?.data && Array.isArray(res.data)) {
+            if (res?.data && Array.isArray(res.data) && res.data.length > 0) {
               setTotalAnalises(res.data.length);
               const seguros = res.data.filter(
                 (log: any) => log.veredito === "SEGURO"
@@ -119,6 +114,44 @@ export default function PerfilScreen() {
     }, [])
   );
 
+  function abrirRota(path: string) {
+    router.push(path as never);
+  }
+
+  function sairDaConta() {
+    Alert.alert(
+      "Sair da conta",
+      "Deseja realmente sair da sua conta?",
+      [
+        {
+          text: "Cancelar",
+          style: "cancel",
+        },
+        {
+          text: "Sair",
+          style: "destructive",
+          onPress: async () => {
+            await AsyncStorage.multiRemove([
+              "@rotuscan_token",
+              "@usuario_id",
+              "@usuario_nome",
+              "@usuario_email",
+              "@usuario_restricoes",
+              "@restricao_gluten",
+              "@restricao_lactose",
+              "@restricao_amendoim",
+            ]);
+            router.replace("/" as never);
+          },
+        },
+      ]
+    );
+  }
+
+  function handleMenuPress() {
+    setDrawerVisible(true);
+  }
+
   if (!fontsLoaded) {
     return (
       <View style={styles.loading}>
@@ -127,68 +160,25 @@ export default function PerfilScreen() {
     );
   }
 
-  function abrirRota(path: string) {
-    router.push(path as never);
-  }
-
-  function sairDaConta() {
-    Alert.alert("Sair da conta", "Deseja realmente sair do RotuScan?", [
-      {
-        text: "Cancelar",
-        style: "cancel",
-      },
-      {
-        text: "Sair",
-        style: "destructive",
-        onPress: async () => {
-          await AsyncStorage.multiRemove([
-            "@rotuscan_token",
-            "@usuario_id",
-            "@usuario_nome",
-            "@usuario_email",
-          ]);
-          router.replace("/" as never);
-        },
-      },
-    ]);
-  }
-
-  const inicialAvatar = nome.trim() ? nome.trim().charAt(0).toUpperCase() : "U";
+  const inicialAvatar = nome.trim() ? nome.trim().charAt(0).toUpperCase() : "E";
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
+    <SafeAreaView style={styles.safeArea} edges={["top"]}>
+      <StatusBar
+        barStyle="dark-content"
+      />
 
-      {/* Cabeçalho */}
-      <View style={[styles.header, { width: cardWidth }]}>
-        <TouchableOpacity
-          style={styles.headerButton}
-          activeOpacity={0.7}
-          onPress={() => router.back()}
-          accessibilityLabel="Voltar"
-        >
-          <Feather name="arrow-left" size={21} color="#59636D" />
-        </TouchableOpacity>
-
-        <View style={styles.logo}>
-          <Text style={styles.logoRotu}>Rotu</Text>
-          <Text style={styles.logoScan}>Scan</Text>
-        </View>
-
-        <TouchableOpacity
-          style={styles.notificationButton}
-          activeOpacity={0.7}
-          onPress={() => abrirRota("/historico")}
-          accessibilityLabel="Histórico"
-        >
-          <Ionicons name="notifications-outline" size={17} color="#697580" />
-          <View style={styles.notificationDot} />
-        </TouchableOpacity>
+      <View style={styles.headerContainer}>
+        <AppHeader onMenuPress={handleMenuPress} />
       </View>
 
       <ScrollView
+        style={styles.scrollView}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.scrollContent, { width: cardWidth }]}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { width: cardWidth },
+        ]}
       >
         {/* Cartão do perfil */}
         <View style={styles.profileCard}>
@@ -200,11 +190,15 @@ export default function PerfilScreen() {
 
               <TouchableOpacity
                 style={styles.editAvatar}
-                onPress={() => abrirRota("/selectIntolerancia")}
+                onPress={() => abrirRota("/editar-perfil")}
                 activeOpacity={0.8}
                 accessibilityLabel="Editar perfil"
               >
-                <Feather name="edit-2" size={10} color={COLORS.white} />
+                <Feather
+                  name="edit-2"
+                  size={11}
+                  color={COLORS.white}
+                />
               </TouchableOpacity>
             </View>
 
@@ -215,14 +209,21 @@ export default function PerfilScreen() {
           </View>
 
           <Text style={styles.userName}>{nome}</Text>
-          <Text style={styles.userEmail}>{email}</Text>
+
+          <Text style={styles.userEmail}>
+            {email}
+          </Text>
 
           <View style={styles.profileDivider} />
 
           <View style={styles.profileFooter}>
-            <Feather name="shield" size={11} color={COLORS.greenBright} />
+            <Feather
+              name="shield"
+              size={13}
+              color={COLORS.green}
+            />
             <Text style={styles.profileDate}>
-              Proteção ativa contra alérgenos
+              Sua saúde em primeiro lugar
             </Text>
           </View>
         </View>
@@ -231,7 +232,7 @@ export default function PerfilScreen() {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>
-              SUAS INTOLERÂNCIAS ATIVAS ({intolerancias.length})
+              SUAS INTOLERÂNCIAS ATIVAS
             </Text>
 
             <TouchableOpacity
@@ -243,28 +244,23 @@ export default function PerfilScreen() {
           </View>
 
           <View style={styles.chipsContainer}>
-            {intolerancias.length > 0 ? (
-              intolerancias.map((item) => (
-                <View key={item} style={styles.intoleranceChip}>
-                  <Ionicons
-                    name={
-                      item === "Glúten"
-                        ? "nutrition-outline"
-                        : item === "Lactose"
-                        ? "water-outline"
-                        : "alert-circle-outline"
-                    }
-                    size={14}
-                    color="#596A78"
-                  />
-                  <Text style={styles.chipText}>{item}</Text>
-                </View>
-              ))
-            ) : (
-              <Text style={styles.emptyChipText}>
-                Nenhuma restrição selecionada
-              </Text>
-            )}
+            {intolerancias.map((item) => (
+              <View key={item} style={styles.intoleranceChip}>
+                <Ionicons
+                  name={
+                    item === "Glúten"
+                      ? "nutrition-outline"
+                      : item === "Lactose"
+                      ? "water-outline"
+                      : "alert-circle-outline"
+                  }
+                  size={15}
+                  color="#596A78"
+                />
+
+                <Text style={styles.chipText}>{item}</Text>
+              </View>
+            ))}
 
             <TouchableOpacity
               style={styles.addChip}
@@ -272,7 +268,11 @@ export default function PerfilScreen() {
               onPress={() => abrirRota("/selectIntolerancia")}
               accessibilityLabel="Adicionar intolerância"
             >
-              <Feather name="plus" size={18} color={COLORS.green} />
+              <Feather
+                name="plus"
+                size={18}
+                color={COLORS.green}
+              />
             </TouchableOpacity>
           </View>
         </View>
@@ -280,8 +280,11 @@ export default function PerfilScreen() {
         {/* Progresso de saúde */}
         <View style={styles.healthCard}>
           <View style={styles.healthHeader}>
-            <Text style={styles.healthTitle}>PROGRESSO DE SAÚDE</Text>
-            <Text style={styles.healthDays}>{totalAnalises} Scans</Text>
+            <Text style={styles.healthTitle}>
+              PROGRESSO DE SAÚDE
+            </Text>
+
+            <Text style={styles.healthDays}>12 dias</Text>
           </View>
 
           <View style={styles.progressBackground}>
@@ -293,27 +296,29 @@ export default function PerfilScreen() {
             <Text style={styles.healthBold}>
               {totalSeguros} escaneamentos seguros
             </Text>{" "}
-            registrados no seu histórico. Continue assim!
+            este mês. Continue assim!
           </Text>
         </View>
 
         {/* Opções da conta */}
         <View style={styles.optionsSection}>
-          <Text style={styles.sectionTitle}>OPÇÕES DA CONTA</Text>
+          <Text style={styles.sectionTitle}>
+            OPÇÕES DA CONTA
+          </Text>
 
           <View style={styles.optionsCard}>
             <Option
-              icon="Sliders"
-              title="Minhas Intolerâncias & Sensibilidade"
-              subtitle={`${intolerancias.length} restrições configuradas`}
-              onPress={() => abrirRota("/selectIntolerancia")}
+              icon="user"
+              title="Dados pessoais e metas"
+              subtitle="Editar nome, e-mail e senha"
+              onPress={() => abrirRota("/editar-perfil")}
             />
 
             <View style={styles.optionDivider} />
 
             <Option
               icon="clock"
-              title="Histórico de Análises"
+              title="Histórico de análises"
               subtitle={`${totalAnalises} produtos analisados`}
               onPress={() => abrirRota("/historico")}
             />
@@ -321,10 +326,17 @@ export default function PerfilScreen() {
             <View style={styles.optionDivider} />
 
             <Option
-              icon="heart"
-              title="Meus Itens Curtidos"
-              subtitle="Produtos salvos como favoritos"
-              onPress={() => abrirRota("/itensCurtidos")}
+              icon="bell"
+              title="Alertas de contaminação"
+              onPress={() => abrirRota("/selectIntolerancia")}
+            />
+
+            <View style={styles.optionDivider} />
+
+            <Option
+              icon="help-circle"
+              title="Ajuda e perguntas frequentes"
+              onPress={() => abrirRota("/configuracoes")}
             />
           </View>
         </View>
@@ -335,17 +347,32 @@ export default function PerfilScreen() {
           activeOpacity={0.75}
           onPress={sairDaConta}
         >
-          <Feather name="log-out" size={14} color={COLORS.red} />
-          <Text style={styles.logoutText}>Sair da Conta</Text>
+          <Feather
+            name="log-out"
+            size={16}
+            color={COLORS.red}
+          />
+
+          <Text style={styles.logoutText}>Sair da conta</Text>
         </TouchableOpacity>
 
         <View style={styles.bottomSpace} />
       </ScrollView>
+
+      {/* Navegação inferior */}
+      <View style={styles.tabBarContainer}>
+        <TabBar abaAtiva="perfil" />
+      </View>
     </SafeAreaView>
   );
 }
 
-function Option({ icon, title, subtitle, onPress }: OptionProps) {
+function Option({
+  icon,
+  title,
+  subtitle,
+  onPress,
+}: OptionProps) {
   return (
     <TouchableOpacity
       style={styles.optionRow}
@@ -353,17 +380,28 @@ function Option({ icon, title, subtitle, onPress }: OptionProps) {
       onPress={onPress}
     >
       <View style={styles.optionIcon}>
-        <Feather name={icon} size={16} color="#718092" />
+        <Feather
+          name={icon}
+          size={18}
+          color="#718092"
+        />
       </View>
 
       <View style={styles.optionContent}>
         <Text style={styles.optionTitle}>{title}</Text>
+
         {subtitle ? (
-          <Text style={styles.optionSubtitle}>{subtitle}</Text>
+          <Text style={styles.optionSubtitle}>
+            {subtitle}
+          </Text>
         ) : null}
       </View>
 
-      <Feather name="chevron-right" size={16} color="#91A3BA" />
+      <Feather
+        name="chevron-right"
+        size={18}
+        color="#91A3BA"
+      />
     </TouchableOpacity>
   );
 }
@@ -372,118 +410,91 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: COLORS.background,
-    alignItems: "center",
   },
+
   loading: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: COLORS.background,
   },
-  header: {
-    height: 52,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 4,
-  },
-  headerButton: {
-    width: 36,
-    height: 36,
-    alignItems: "flex-start",
-    justifyContent: "center",
-  },
-  logo: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  logoRotu: {
-    fontFamily: "Geist_700Bold",
-    fontSize: 20,
-    color: COLORS.green,
-    letterSpacing: -0.6,
-  },
-  logoScan: {
-    fontFamily: "Geist_700Bold",
-    fontSize: 20,
-    color: "#F59E0B",
-    letterSpacing: -0.4,
-  },
-  notificationButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: COLORS.white,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: "#EDF0F3",
-  },
-  notificationDot: {
-    position: "absolute",
-    top: 6,
-    right: 7,
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: "#20C875",
-  },
-  scrollContent: {
-    paddingTop: 8,
-    paddingBottom: 24,
+
+  headerContainer: {
+    width: "100%",
     alignSelf: "center",
   },
+
+  scrollView: {
+    flex: 1,
+    width: "100%",
+  },
+
+  scrollContent: {
+    paddingTop: 8,
+    paddingBottom: 16,
+    alignSelf: "center",
+  },
+
   profileCard: {
     backgroundColor: COLORS.white,
     borderRadius: 16,
     paddingHorizontal: 16,
     paddingTop: 18,
-    paddingBottom: 14,
+    paddingBottom: 16,
     alignItems: "center",
     shadowColor: "#223344",
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
     shadowOpacity: 0.04,
-    shadowRadius: 6,
+    shadowRadius: 5,
     elevation: 2,
   },
+
   profileTop: {
     width: "100%",
-    minHeight: 70,
+    minHeight: 76,
     alignItems: "center",
     justifyContent: "center",
     position: "relative",
   },
+
   avatarContainer: {
     alignItems: "center",
     justifyContent: "center",
     position: "relative",
   },
+
   avatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
     backgroundColor: "#CFF8E3",
     alignItems: "center",
     justifyContent: "center",
   },
+
   avatarLetter: {
     fontFamily: "Geist_700Bold",
-    fontSize: 22,
+    fontSize: 23,
     color: COLORS.green,
   },
+
   editAvatar: {
     position: "absolute",
     right: -2,
     bottom: -2,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: "#00A866",
+    width: 23,
+    height: 23,
+    borderRadius: 12,
+    backgroundColor: COLORS.greenBright,
     borderWidth: 2,
     borderColor: COLORS.white,
     alignItems: "center",
     justifyContent: "center",
   },
+
   memberBadge: {
     position: "absolute",
     top: 0,
@@ -493,53 +504,62 @@ const styles = StyleSheet.create({
     backgroundColor: "#E7FFF4",
     borderRadius: 12,
     paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingVertical: 5,
   },
+
   memberDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
     backgroundColor: "#12B981",
-    marginRight: 4,
+    marginRight: 5,
   },
+
   memberText: {
     fontFamily: "Geist_600SemiBold",
-    fontSize: 10,
+    fontSize: 9,
     color: "#079568",
   },
+
   userName: {
     fontFamily: "Geist_700Bold",
-    fontSize: 18,
+    fontSize: 20,
     color: "#101828",
     marginTop: 8,
   },
+
   userEmail: {
     fontFamily: "Geist_400Regular",
     fontSize: 13,
     color: "#64748B",
-    marginTop: 2,
+    marginTop: 4,
   },
+
   profileDivider: {
     width: "100%",
     height: 1,
     backgroundColor: "#F0F3F5",
-    marginTop: 12,
-    marginBottom: 10,
+    marginTop: 16,
+    marginBottom: 12,
   },
+
   profileFooter: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
+    gap: 7,
   },
+
   profileDate: {
     fontFamily: "Geist_400Regular",
     fontSize: 12,
     color: "#64748B",
   },
+
   section: {
-    marginTop: 20,
+    marginTop: 22,
   },
+
   sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -547,150 +567,168 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     paddingHorizontal: 2,
   },
+
   sectionTitle: {
     fontFamily: "Geist_600SemiBold",
     fontSize: 12,
     letterSpacing: 0.3,
     color: "#607087",
   },
+
   editText: {
     fontFamily: "Geist_600SemiBold",
     fontSize: 13,
     color: "#00A866",
   },
+
   chipsContainer: {
     flexDirection: "row",
     alignItems: "center",
     flexWrap: "wrap",
     gap: 8,
   },
+
   intoleranceChip: {
-    minHeight: 34,
+    minHeight: 36,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
-    paddingHorizontal: 14,
-    borderRadius: 18,
+    gap: 7,
+    paddingHorizontal: 12,
+    borderRadius: 20,
     backgroundColor: COLORS.white,
     borderWidth: 1,
     borderColor: "#EEF1F4",
   },
+
   chipText: {
     fontFamily: "Geist_600SemiBold",
     fontSize: 13,
     color: "#344054",
   },
-  emptyChipText: {
-    fontFamily: "Geist_400Regular",
-    fontSize: 13,
-    color: "#94A3B8",
-  },
+
   addChip: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: COLORS.white,
     borderWidth: 1,
     borderColor: "#E3EAE6",
     alignItems: "center",
     justifyContent: "center",
   },
+
   healthCard: {
     backgroundColor: "#EAF4EE",
     borderWidth: 1,
     borderColor: "#E0EDE4",
     borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    marginTop: 16,
+    paddingHorizontal: 15,
+    paddingVertical: 16,
+    marginTop: 18,
   },
+
   healthHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 10,
+    marginBottom: 12,
   },
+
   healthTitle: {
     fontFamily: "Geist_700Bold",
     fontSize: 12,
     color: COLORS.green,
     letterSpacing: 0.3,
   },
+
   healthDays: {
     fontFamily: "Geist_700Bold",
     fontSize: 13,
     color: COLORS.green,
   },
+
   progressBackground: {
     width: "100%",
-    height: 6,
-    borderRadius: 6,
+    height: 7,
+    borderRadius: 5,
     backgroundColor: "#D5E2D9",
     overflow: "hidden",
-    marginBottom: 10,
+    marginBottom: 12,
   },
+
   progressFill: {
     width: "75%",
     height: "100%",
-    borderRadius: 6,
+    borderRadius: 5,
     backgroundColor: "#176B43",
   },
+
   healthDescription: {
     fontFamily: "Geist_400Regular",
-    fontSize: 12,
-    lineHeight: 18,
+    fontSize: 13,
+    lineHeight: 20,
     color: "#40594A",
   },
+
   healthBold: {
     fontFamily: "Geist_700Bold",
   },
+
   optionsSection: {
-    marginTop: 20,
+    marginTop: 22,
   },
+
   optionsCard: {
     backgroundColor: COLORS.white,
     borderRadius: 16,
-    marginTop: 8,
+    marginTop: 10,
     paddingHorizontal: 12,
     paddingVertical: 4,
     overflow: "hidden",
   },
+
   optionRow: {
-    minHeight: 54,
+    minHeight: 58,
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 8,
+    paddingVertical: 10,
     gap: 12,
   },
+
   optionIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 9,
+    width: 38,
+    height: 38,
+    borderRadius: 10,
     backgroundColor: "#F0F4F8",
     alignItems: "center",
     justifyContent: "center",
   },
+
   optionContent: {
     flex: 1,
     justifyContent: "center",
   },
+
   optionTitle: {
     fontFamily: "Geist_600SemiBold",
-    fontSize: 14,
+    fontSize: 13,
     color: "#263449",
   },
+
   optionSubtitle: {
     fontFamily: "Geist_400Regular",
-    fontSize: 12,
+    fontSize: 11,
     color: "#94A3B8",
-    marginTop: 2,
+    marginTop: 3,
   },
+
   optionDivider: {
     height: 1,
     backgroundColor: "#F0F2F5",
-    marginLeft: 46,
+    marginLeft: 50,
   },
+
   logoutButton: {
     minHeight: 46,
     flexDirection: "row",
@@ -702,14 +740,21 @@ const styles = StyleSheet.create({
     borderColor: "#FDE2E2",
     borderRadius: 12,
     marginTop: 16,
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
   },
+
   logoutText: {
     fontFamily: "Geist_600SemiBold",
-    fontSize: 14,
+    fontSize: 13,
     color: COLORS.red,
   },
+
   bottomSpace: {
-    height: 20,
+    height: 12,
+  },
+
+  tabBarContainer: {
+    width: "100%",
+    backgroundColor: COLORS.white,
   },
 });

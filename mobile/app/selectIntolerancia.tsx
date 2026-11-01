@@ -27,9 +27,9 @@ import api from "../services/api";
 const { width } = Dimensions.get("window");
 
 const iconImages = {
-  gluten: require("../images/iconGluten.png"),
-  lactose: require("../images/iconLactose.png"),
-  amendoim: require("../images/iconAmendoim.png"),
+  gluten: require("../assets/images/iconGluten.png"),
+  lactose: require("../assets/images/iconLactose.png"),
+  amendoim: require("../assets/images/iconAmendoim.png"),
 } as const;
 
 export default function IntoleranciasScreen() {
@@ -58,6 +58,13 @@ export default function IntoleranciasScreen() {
         setGlutenAtivo(lista.includes("gluten"));
         setLactoseAtivo(lista.includes("lactose"));
         setAmendoimAtivo(lista.includes("amendoim"));
+      } else {
+        const g = await AsyncStorage.getItem("@restricao_gluten");
+        const l = await AsyncStorage.getItem("@restricao_lactose");
+        const a = await AsyncStorage.getItem("@restricao_amendoim");
+        setGlutenAtivo(g === "true");
+        setLactoseAtivo(l === "true");
+        setAmendoimAtivo(a === "true");
       }
     };
     carregarRestricoesLocais();
@@ -66,13 +73,11 @@ export default function IntoleranciasScreen() {
   const salvarIntolerancias = async () => {
     setLoading(true);
     try {
-      // Monta o array simples de strings para máxima performance no NoSQL (embedded)
       const restricoesSelecionadas: string[] = [];
       if (glutenAtivo) restricoesSelecionadas.push("gluten");
       if (lactoseAtivo) restricoesSelecionadas.push("lactose");
       if (amendoimAtivo) restricoesSelecionadas.push("amendoim");
 
-      // Se todas as restrições ativas forem de nível Leve (0), libera "PODE CONTER"
       const maiorNivel = Math.max(
         glutenAtivo ? glutenNivel : 0,
         lactoseAtivo ? lactoseNivel : 0,
@@ -80,17 +85,18 @@ export default function IntoleranciasScreen() {
       );
       const liberarPodeConter = maiorNivel === 0;
 
-      // Salva localmente no AsyncStorage
       await AsyncStorage.setItem(
         "@usuario_restricoes",
         JSON.stringify(restricoesSelecionadas)
       );
+      await AsyncStorage.setItem("@restricao_gluten", String(glutenAtivo));
+      await AsyncStorage.setItem("@restricao_lactose", String(lactoseAtivo));
+      await AsyncStorage.setItem("@restricao_amendoim", String(amendoimAtivo));
       await AsyncStorage.setItem(
         "@usuario_liberar_tracos",
         String(liberarPodeConter)
       );
 
-      // Envia para o Back-end se houver usuário logado
       const usuarioId = await AsyncStorage.getItem("@usuario_id");
       if (usuarioId) {
         await api.put("/users/restricoes", {
@@ -100,10 +106,10 @@ export default function IntoleranciasScreen() {
         }).catch(() => {});
       }
 
-      router.replace("/home");
+      router.replace("/home" as never);
     } catch (error) {
       Alert.alert("Aviso", "Preferências salvas localmente no dispositivo.");
-      router.replace("/home");
+      router.replace("/home" as never);
     } finally {
       setLoading(false);
     }
@@ -115,7 +121,7 @@ export default function IntoleranciasScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F8F9FA" />
+      <StatusBar barStyle="dark-content" />
 
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.logoContainer}>

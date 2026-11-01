@@ -1,4 +1,3 @@
-
 import { Dimensions, StatusBar, StyleSheet } from "react-native";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -13,7 +12,11 @@ export const styles = StyleSheet.create({
   },
 
   backdrop: {
-    ...StyleSheet.absoluteFillObject,
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: "rgba(0, 0, 0, 0.28)",
   },
 
@@ -55,7 +58,7 @@ export const styles = StyleSheet.create({
 
   userName: {
     fontSize: 12,
-    fontWeight: "700",
+    fontWeight: "bold",
     color: "#F59E0B",
   },
 
@@ -128,11 +131,12 @@ export const styles = StyleSheet.create({
     borderTopLeftRadius: 2,
     borderTopRightRadius: 2,
   },
-drawerImage:{
+
+  drawerImage: {
     position: "absolute",
     bottom: 0,
     left: 0,
     width: 100,
     height: 150,
-}
+  },
 });

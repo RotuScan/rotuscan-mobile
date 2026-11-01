@@ -18,6 +18,33 @@ type Props = {
 export default function TabBar({ abaAtiva }: Props) {
   const insets = useSafeAreaInsets();
 
+  const tabs = [
+    {
+      id: "inicio" as AbaId,
+      label: "Início",
+      icon: "home" as const,
+      route: "/home",
+    },
+    {
+      id: "historico" as AbaId,
+      label: "Histórico",
+      icon: "clock" as const,
+      route: "/historico",
+    },
+    {
+      id: "itensCurtidos" as AbaId,
+      label: "Curtidos",
+      icon: "heart" as const,
+      route: "/itensCurtidos",
+    },
+    {
+      id: "perfil" as AbaId,
+      label: "Perfil",
+      icon: "user" as const,
+      route: "/perfil",
+    },
+  ];
+
   return (
     <View
       style={[
@@ -25,70 +52,51 @@ export default function TabBar({ abaAtiva }: Props) {
         { paddingBottom: Math.max(insets.bottom, 8) },
       ]}
     >
-      {/* Início */}
-      <TouchableOpacity
-        style={styles.tab}
-        activeOpacity={0.7}
-        onPress={() => router.push("../home")}
-      >
-        <View
-          style={[
-            styles.iconPill,
-            abaAtiva === "inicio" && styles.iconPillAtivo,
-          ]}
-        >
-          <Feather
-            name="home"
-            size={20}
-            color={abaAtiva === "inicio" ? "#006D37" : "#9CA3AF"}
-          />
-        </View>
+      {/* Início e Histórico */}
+      {tabs.slice(0, 2).map((tab) => {
+        const ativo = abaAtiva === tab.id;
 
-        <Text
-          style={[
-            styles.label,
-            abaAtiva === "inicio" && styles.labelAtivo,
-          ]}
-        >
-          Início
-        </Text>
-      </TouchableOpacity>
+        return (
+          <TouchableOpacity
+            key={tab.id}
+            style={styles.tab}
+            activeOpacity={0.7}
+            onPress={() => router.push(tab.route as never)}
+          >
+            <View
+              style={[
+                styles.iconPill,
+                ativo && styles.iconPillAtivo,
+              ]}
+            >
+              <Feather
+                name={tab.icon}
+                size={20}
+                color={ativo ? "#006D37" : "#9CA3AF"}
+              />
+            </View>
 
-      {/* Histórico */}
-      <TouchableOpacity
-        style={styles.tab}
-        activeOpacity={0.7}
-        onPress={() => router.push("../historico")}
-      >
-        <View
-          style={[
-            styles.iconPill,
-            abaAtiva === "historico" && styles.iconPillAtivo,
-          ]}
-        >
-          <Feather
-            name="clock"
-            size={20}
-            color={abaAtiva === "historico" ? "#006D37" : "#9CA3AF"}
-          />
-        </View>
-
-        <Text
-          style={[
-            styles.label,
-            abaAtiva === "historico" && styles.labelAtivo,
-          ]}
-        >
-          Histórico
-        </Text>
-      </TouchableOpacity>
+            <Text
+              style={[
+                styles.label,
+                ativo && styles.labelAtivo,
+              ]}
+            >
+              {tab.label}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
 
       {/* Escanear */}
       <View style={styles.scanTab}>
         <TouchableOpacity
           activeOpacity={0.85}
-          style={styles.scanButton}
-          onPress={() => router.push("../scanner")}
+          style={[
+            styles.scanButton,
+            abaAtiva === "escanear" && styles.scanButtonAtivo,
+          ]}
+          onPress={() => router.push("/scanner" as never)}
           accessibilityRole="button"
           accessibilityLabel="Escanear produto"
         >
@@ -99,66 +107,51 @@ export default function TabBar({ abaAtiva }: Props) {
           />
         </TouchableOpacity>
 
-        <Text style={styles.label}>Escanear</Text>
+        <Text
+          style={[
+            styles.label,
+            abaAtiva === "escanear" && styles.labelAtivo,
+          ]}
+        >
+          Escanear
+        </Text>
       </View>
 
-      {/* Curtidos */}
-      <TouchableOpacity
-        style={styles.tab}
-        activeOpacity={0.7}
-        onPress={() => router.push("../itensCurtidos")}
-      >
-        <View
-          style={[
-            styles.iconPill,
-            abaAtiva === "itensCurtidos" && styles.iconPillAtivo,
-          ]}
-        >
-          <Feather
-            name="heart"
-            size={20}
-            color={abaAtiva === "itensCurtidos" ? "#006D37" : "#9CA3AF"}
-          />
-        </View>
+      {/* Curtidos e Perfil */}
+      {tabs.slice(2).map((tab) => {
+        const ativo = abaAtiva === tab.id;
 
-        <Text
-          style={[
-            styles.label,
-            abaAtiva === "itensCurtidos" && styles.labelAtivo,
-          ]}
-        >
-          Curtidos
-        </Text>
-      </TouchableOpacity>
+        return (
+          <TouchableOpacity
+            key={tab.id}
+            style={styles.tab}
+            activeOpacity={0.7}
+            onPress={() => router.push(tab.route as never)}
+          >
+            <View
+              style={[
+                styles.iconPill,
+                ativo && styles.iconPillAtivo,
+              ]}
+            >
+              <Feather
+                name={tab.icon}
+                size={20}
+                color={ativo ? "#006D37" : "#9CA3AF"}
+              />
+            </View>
 
-      {/* Perfil */}
-      <TouchableOpacity
-        style={styles.tab}
-        activeOpacity={0.7}
-        onPress={() => router.push("../perfil")}
-      >
-        <View
-          style={[
-            styles.iconPill,
-            abaAtiva === "perfil" && styles.iconPillAtivo,
-          ]}
-        >
-          <Feather
-            name="user"
-            size={20}
-            color={abaAtiva === "perfil" ? "#006D37" : "#9CA3AF"}
-          />
-        </View>
-
-        <Text
-          style={[
-            styles.label,
-            abaAtiva === "perfil" && styles.labelAtivo,
-          ]}
-        >
-          Perfil
-        </Text>
-      </TouchableOpacity>
+            <Text
+              style={[
+                styles.label,
+                ativo && styles.labelAtivo,
+              ]}
+            >
+              {tab.label}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
     </View>
   );
 }

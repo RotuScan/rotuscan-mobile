@@ -41,7 +41,6 @@ export const styles = StyleSheet.create({
     color: "#006D37",
   },
 
-  // Botão central de escanear (elevado acima da barra)
   scanTab: {
     flex: 1,
     alignItems: "center",
@@ -63,5 +62,10 @@ export const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 8,
     elevation: 6,
+  },
+
+  scanButtonAtivo: {
+    backgroundColor: "#006D37",
+    borderColor: "#DCFCE7",
   },
 });
