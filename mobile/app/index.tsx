@@ -11,6 +11,9 @@ import { useState } from "react";
 import {
   Dimensions,
   ImageBackground,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
@@ -22,7 +25,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 const { width } = Dimensions.get("window");
 
-export default function CadastroScreen() {
+export default function LoginScreen() {
   const [fontsLoaded] = useFonts({
     Geist_400Regular,
     Geist_500Medium,
@@ -32,13 +35,10 @@ export default function CadastroScreen() {
 
   const backgroundImage = require("../assets/images/Fundo.png");
 
-  // ESTADOS PARA OS CAMPOS DE CADASTRO
-  const [usuario, setUsuario] = useState("Endrew R Lemos");
+  // ESTADOS PARA OS CAMPOS DE LOGIN
   const [email, setEmail] = useState("rendrew8@gmail.com");
   const [senha, setSenha] = useState("12345678910");
-  const [repetirSenha, setRepetirSenha] = useState("12345678910");
   const [mostrarSenha, setMostrarSenha] = useState(false);
-  const [mostrarRepetirSenha, setMostrarRepetirSenha] = useState(false);
 
   if (!fontsLoaded) {
     return null;
@@ -50,89 +50,106 @@ export default function CadastroScreen() {
       resizeMode="cover"
       style={styles.background}
     >
-      <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="dark-content" backgroundColor="#F8F9FA" />
-
-        <View style={styles.logoContainer}>
-          <Text style={styles.logoRotu}>Rotu</Text>
-          <Text style={styles.logoScan}>Scan</Text>
-        </View>
- {/* CARD DE LOGIN */}
-      <View style={styles.loginCard}>
-        {/* E-MAIL */}
-        <Text style={styles.label}>E-mail</Text>
-        <View style={styles.inputContainer}>
-          <Ionicons
-            name="mail-outline"
-            size={18}
-            color="#556070"
-            style={styles.inputIcon}
-          />
-          <TextInput
-            value={email}
-            onChangeText={setEmail}
-            placeholder="E-mail"
-            placeholderTextColor="#9EA5B1"
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-            style={styles.input}
-          />
-        </View>
-
-        {/* SENHA */}
-        <Text style={[styles.label, styles.passwordLabel]}>Senha</Text>
-        <View style={styles.inputContainer}>
-          <Ionicons
-            name="lock-closed-outline"
-            size={18}
-            color="#556070"
-            style={styles.inputIcon}
-          />
-          <TextInput
-            value={senha}
-            onChangeText={setSenha}
-            placeholder="Senha"
-            placeholderTextColor="#9EA5B1"
-            secureTextEntry={!mostrarSenha}
-            autoCapitalize="none"
-            autoCorrect={false}
-            style={styles.input}
-          />
-          <TouchableOpacity
-            onPress={() => setMostrarSenha(!mostrarSenha)}
-            style={styles.eyeButton}
-            activeOpacity={0.7}
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
+        
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={styles.keyboardView}
+        >
+          <ScrollView
+            contentContainerStyle={styles.scrollContainer}
+            showsVerticalScrollIndicator={false}
+            bounces={false}
           >
-            <Ionicons
-              name={mostrarSenha ? "eye-outline" : "eye-outline"}
-              size={18}
-              color="#8A94A6"
-            />
-          </TouchableOpacity>
-        </View>
+            {/* LOGO */}
+            <View style={styles.logoContainer}>
+              <Text style={styles.logoRotu}>Rotu</Text>
+              <Text style={styles.logoScan}>Scan</Text>
+            </View>
 
-        {/* ESQUECEU A SENHA */}
-        <TouchableOpacity style={styles.forgotContainer} activeOpacity={0.7}>
-          <Text style={styles.forgotText}>Esqueceu a senha?</Text>
-        </TouchableOpacity>
+            {/* CARD DE LOGIN */}
+            <View style={styles.loginCard}>
+              {/* E-MAIL */}
+              <Text style={styles.label}>E-mail</Text>
+              <View style={styles.inputContainer}>
+                <Ionicons
+                  name="mail-outline"
+                  size={18}
+                  color="#556070"
+                  style={styles.inputIcon}
+                />
+                <TextInput
+                  value={email}
+                  onChangeText={setEmail}
+                  placeholder="E-mail"
+                  placeholderTextColor="#9EA5B1"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  style={styles.input}
+                />
+              </View>
 
-        {/* BOTÃO ENTRAR */}
-        <TouchableOpacity style={styles.loginButton} activeOpacity={0.85} 
-          onPress={() => router.push("../home")}>
-          <Text style={styles.loginButtonText}>Entrar</Text>
-        </TouchableOpacity>
+              {/* SENHA */}
+              <Text style={[styles.label, styles.passwordLabel]}>Senha</Text>
+              <View style={styles.inputContainer}>
+                <Ionicons
+                  name="lock-closed-outline"
+                  size={18}
+                  color="#556070"
+                  style={styles.inputIcon}
+                />
+                <TextInput
+                  value={senha}
+                  onChangeText={setSenha}
+                  placeholder="Senha"
+                  placeholderTextColor="#9EA5B1"
+                  secureTextEntry={!mostrarSenha}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  style={styles.input}
+                />
+                <TouchableOpacity
+                  onPress={() => setMostrarSenha(!mostrarSenha)}
+                  style={styles.eyeButton}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons
+                    name={mostrarSenha ? "eye-outline" : "eye-off-outline"}
+                    size={18}
+                    color="#8A94A6"
+                  />
+                </TouchableOpacity>
+              </View>
 
-        {/* CADASTRO */}
-        <View style={styles.registerContainer}>
-          <Text style={styles.registerText}>Não tem conta? </Text>
-          <TouchableOpacity activeOpacity={1}
-         onPress={() => router.push("../cadastro") }
-          >
-            <Text style={styles.registerLink}>Cadastre-se</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+              {/* ESQUECEU A SENHA */}
+              <TouchableOpacity style={styles.forgotContainer} activeOpacity={0.7}>
+                <Text style={styles.forgotText}>Esqueceu a senha?</Text>
+              </TouchableOpacity>
+
+              {/* BOTÃO ENTRAR */}
+              <TouchableOpacity
+                style={styles.loginButton}
+                activeOpacity={0.85}
+                onPress={() => router.push("../home")}
+              >
+                <Text style={styles.loginButtonText}>Entrar</Text>
+              </TouchableOpacity>
+
+              {/* CADASTRO */}
+              <View style={styles.registerContainer}>
+                <Text style={styles.registerText}>Não tem conta? </Text>
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  onPress={() => router.push("../cadastro")}
+                >
+                  <Text style={styles.registerLink}>Cadastre-se</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     </ImageBackground>
   );
@@ -144,35 +161,34 @@ const styles = StyleSheet.create({
     width: "100%",
     height: "100%",
   },
-  
-  container: {
+  safeArea: {
     flex: 1,
     backgroundColor: "transparent",
+  },
+  keyboardView: {
+    flex: 1,
+  },
+  scrollContainer: {
+    flexGrow: 1,
     alignItems: "center",
-    overflow: "hidden",
-  
+    justifyContent: "center",
+    paddingVertical: 24,
+    paddingHorizontal: 16,
   },
 
-  //   LOGO
-
+  // LOGO
   logoContainer: {
-    position: "absolute",
-    top: 103,
-    left: 0,
-    right: 0,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    zIndex: 1,
+    marginBottom: 24,
   },
-
   logoRotu: {
     fontFamily: "Geist_700Bold",
     fontSize: 42,
     lineHeight: 48,
     color: "#006B3A",
   },
-
   logoScan: {
     fontFamily: "Geist_700Bold",
     fontSize: 42,
@@ -180,17 +196,15 @@ const styles = StyleSheet.create({
     color: "#F8A018",
   },
 
-  //   CARD
-
+  // CARD DE LOGIN
   loginCard: {
-    position: "absolute",
-    top: 163,
-    width: width * 0.91,
+    width: "100%",
+    maxWidth: 380,
     backgroundColor: "#FFFFFF",
     borderRadius: 17,
-    paddingHorizontal: 15,
-    paddingTop: 17,
-    paddingBottom: 20,
+    paddingHorizontal: 20,
+    paddingTop: 22,
+    paddingBottom: 24,
     shadowColor: "#000",
     shadowOffset: {
       width: 0,
@@ -199,26 +213,24 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 15,
     elevation: 5,
-    zIndex: 2,
   },
 
   // LABELS
-
   label: {
     fontFamily: "Geist_600SemiBold",
-    fontSize: 9.5,
-    lineHeight: 12,
+    fontSize: 12,
+    lineHeight: 16,
     color: "#374151",
     marginBottom: 6,
   },
-    passwordLabel: {
-    marginTop: 16,
+  passwordLabel: {
+    marginTop: 14,
   },
 
-  /* ESQUECEU A SENHA */
+  // ESQUECEU A SENHA
   forgotContainer: {
     alignItems: "flex-end",
-    marginTop: 12,
+    marginTop: 10,
     marginBottom: 20,
   },
   forgotText: {
@@ -228,68 +240,53 @@ const styles = StyleSheet.create({
   },
 
   // INPUTS
-
   inputContainer: {
     width: "100%",
-    height: 33,
+    height: 46,
     borderWidth: 1,
     borderColor: "#E3E6EA",
-    borderRadius: 18,
+    borderRadius: 14,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 9,
+    paddingHorizontal: 12,
     backgroundColor: "#FFFFFF",
-    marginBottom: 10,
   },
-
   inputIcon: {
-    width: 17,
-    marginRight: 4,
+    marginRight: 8,
     textAlign: "center",
   },
-
   input: {
     flex: 1,
     height: "100%",
     paddingVertical: 0,
-    paddingHorizontal: 0,
     fontFamily: "Geist_400Regular",
-    fontSize: 9.5,
+    fontSize: 13,
     color: "#374151",
   },
-
   eyeButton: {
-    width: 22,
-    height: 30,
+    width: 32,
+    height: "100%",
     alignItems: "center",
     justifyContent: "center",
   },
 
-  // =======   BOTÃO
-
+  // BOTÃO ENTRAR
   loginButton: {
     width: "100%",
-    height: 34,
-    borderRadius: 20,
+    height: 46,
+    borderRadius: 14,
     backgroundColor: "#24C95B",
     alignItems: "center",
     justifyContent: "center",
-    flexDirection: "row",
-    marginTop: 0,
-    marginBottom: 17,
+    marginBottom: 20,
   },
-
   loginButtonText: {
     fontFamily: "Geist_600SemiBold",
-    fontSize: 12,
+    fontSize: 14,
     color: "#FFFFFF",
   },
-  arrow: {
-    marginLeft: 4,
-  },
 
-  //   LOGIN
-
+  // CADASTRO LINK
   registerContainer: {
     flexDirection: "row",
     justifyContent: "center",
@@ -297,12 +294,12 @@ const styles = StyleSheet.create({
   },
   registerText: {
     fontFamily: "Geist_400Regular",
-    fontSize: 9.5,
+    fontSize: 12,
     color: "#9CA3AF",
   },
   registerLink: {
     fontFamily: "Geist_700Bold",
-    fontSize: 9.5,
+    fontSize: 12,
     color: "#008B5E",
   },
 });
