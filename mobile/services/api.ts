@@ -19,6 +19,8 @@ export const CHAVES_STORAGE = [
   "@restricao_lactose",
   "@restricao_amendoim",
   "@usuario_liberar_tracos",
+  "@vinculo_convite_dispensado",
+  "@restricoes_vistas_em",
 ];
 
 export async function limparSessaoLocal() {
@@ -32,13 +34,29 @@ export async function limparSessaoLocal() {
 export function extrairMensagemErro(error: any): string {
   if (!error) return "Ocorreu um erro inesperado.";
   if (typeof error === "string") return error;
-  if (error.erroAmigavel) return error.erroAmigavel;
-  if (error.response?.data?.erro) return String(error.response.data.erro);
-  if (error.response?.data?.mensagem) return String(error.response.data.mensagem);
-  if (!error.response) {
-    return "Não foi possível conectar ao servidor";
+
+  if (error.response) {
+    const data = error.response.data;
+    if (data && typeof data === "object") {
+      if (typeof data.mensagem === "string" && data.mensagem.trim()) {
+        return data.mensagem.trim();
+      }
+      if (typeof data.erro === "string" && data.erro.trim()) {
+        return data.erro.trim();
+      }
+      if (data.campos && typeof data.campos === "object") {
+        const primeiraMsg = Object.values(data.campos).find(
+          (v) => typeof v === "string" && v.trim()
+        );
+        if (primeiraMsg) return String(primeiraMsg);
+      }
+    }
+    if (error.erroAmigavel) return String(error.erroAmigavel);
+    return `Erro HTTP ${error.response.status} ao processar a solicitação.`;
   }
-  return "Ocorreu um erro ao comunicar com o servidor.";
+
+  if (error.erroAmigavel) return String(error.erroAmigavel);
+  return "Não foi possível conectar ao servidor";
 }
 
 const api = axios.create({
@@ -55,18 +73,28 @@ api.interceptors.request.use(async (config) => {
   return config;
 });
 
-// Interceptor de resposta: trata 401 (sessão expirada) e mensagens de rede
+// Interceptor de resposta: trata 401 (sessão expirada), loga em dev e preserva mensagens reais do servidor
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
+    const metodo = String(error?.config?.method || "GET").toUpperCase();
     const url = String(error?.config?.url || "");
+    const status = error?.response?.status;
+
+    if (typeof __DEV__ !== "undefined" && __DEV__) {
+      console.warn(
+        `[API Error] ${metodo} ${url} -> ${status ?? "NETWORK_ERROR"}`,
+        error?.response?.data || error?.message
+      );
+    }
+
     const ehRotaAuth =
       url.includes("/auth/login") ||
       url.includes("/api/login") ||
       url.includes("/auth/register") ||
       url.includes("/api/cadastro");
 
-    if (error?.response?.status === 401 && !ehRotaAuth) {
+    if (status === 401 && !ehRotaAuth) {
       await limparSessaoLocal();
       try {
         router.replace("/login" as never);
@@ -77,8 +105,18 @@ api.interceptors.response.use(
 
     if (!error?.response) {
       error.erroAmigavel = "Não foi possível conectar ao servidor";
-    } else if (error?.response?.data?.erro) {
-      error.erroAmigavel = error.response.data.erro;
+    } else {
+      const data = error.response.data;
+      if (data?.campos && typeof data.campos === "object") {
+        error.campos = data.campos;
+      }
+      if (typeof data?.mensagem === "string" && data.mensagem.trim()) {
+        error.erroAmigavel = data.mensagem.trim();
+      } else if (typeof data?.erro === "string" && data.erro.trim()) {
+        error.erroAmigavel = data.erro.trim();
+      } else {
+        error.erroAmigavel = `Erro HTTP ${status} ao processar a solicitação.`;
+      }
     }
 
     return Promise.reject(error);
@@ -89,7 +127,10 @@ api.interceptors.response.use(
  * Envia a foto capturada para POST /scanner usando XMLHttpRequest nativo (evitando o bug
  * 'Unsupported FormDataPart implementation' do polyfill expo/fetch no SDK 58).
  */
-export async function enviarFotoScanner(uri: string): Promise<any> {
+export async function enviarFotoScanner(
+  uri: string,
+  regiao?: { x: number; y: number; w: number; h: number } | null
+): Promise<any> {
   const token = await AsyncStorage.getItem("@rotuscan_token");
   const formData = new FormData();
 
@@ -109,6 +150,10 @@ export async function enviarFotoScanner(uri: string): Promise<any> {
     } as any);
   }
 
+  if (regiao) {
+    formData.append("regiao", JSON.stringify(regiao));
+  }
+
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${API_URL}/scanner`);
@@ -123,7 +168,10 @@ export async function enviarFotoScanner(uri: string): Promise<any> {
       try {
         json = JSON.parse(xhr.responseText || "{}");
       } catch {
-        json = { erro: "Resposta inválida do servidor." };
+        json = {
+          mensagem: "Resposta inválida do servidor.",
+          erro: "Resposta inválida do servidor.",
+        };
       }
 
       if (xhr.status >= 200 && xhr.status < 300) {
@@ -137,13 +185,18 @@ export async function enviarFotoScanner(uri: string): Promise<any> {
         }
         reject({
           response: { status: 401, data: json },
-          erroAmigavel: json?.erro || "Sessão expirada. Faça login novamente.",
+          erroAmigavel:
+            json?.mensagem ||
+            json?.erro ||
+            "Sessão expirada. Faça login novamente.",
         });
       } else {
         reject({
           response: { status: xhr.status, data: json },
           erroAmigavel:
-            json?.erro || "Não foi possível analisar a imagem no servidor.",
+            json?.mensagem ||
+            json?.erro ||
+            "Não foi possível analisar a imagem no servidor.",
         });
       }
     };
@@ -210,7 +263,10 @@ export async function enviarAvatarUsuario(
       try {
         json = JSON.parse(xhr.responseText || "{}");
       } catch {
-        json = { erro: "Resposta inválida do servidor." };
+        json = {
+          mensagem: "Resposta inválida do servidor.",
+          erro: "Resposta inválida do servidor.",
+        };
       }
 
       if (xhr.status >= 200 && xhr.status < 300) {
@@ -218,7 +274,8 @@ export async function enviarAvatarUsuario(
       } else {
         reject({
           response: { status: xhr.status, data: json },
-          erroAmigavel: json?.erro || "Erro ao enviar foto de perfil.",
+          erroAmigavel:
+            json?.mensagem || json?.erro || "Erro ao enviar foto de perfil.",
         });
       }
     };

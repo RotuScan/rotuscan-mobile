@@ -65,7 +65,6 @@ async function enviarImagemScanner(token, caminhoImagem) {
 }
 
 async function aguardarServidorPronto(processoServidor, timeoutMs = 20000) {
-  const inicio = Date.now();
   return new Promise((resolve, reject) => {
     let resolvido = false;
 
@@ -88,7 +87,9 @@ async function aguardarServidorPronto(processoServidor, timeoutMs = 20000) {
     const timer = setTimeout(() => {
       if (!resolvido) {
         cleanup();
-        reject(new Error('Timeout aguardando inicialização do servidor para smoke test.'));
+        reject(
+          new Error('Timeout aguardando inicialização do servidor para smoke test.')
+        );
       }
     }, timeoutMs);
 
@@ -105,92 +106,154 @@ async function aguardarServidorPronto(processoServidor, timeoutMs = 20000) {
 
 async function executarSmokeTest() {
   console.log('======================================================================');
-  console.log('INICIANDO SMOKE TEST AUTOMATIZADO — ROTUSCAN API + OCR + MONGODB');
+  console.log('INICIANDO SMOKE TEST AUTOMATIZADO — ROTUSCAN ENTREGA 1');
   console.log('======================================================================\n');
 
   const servidorProc = spawn(process.execPath, ['server.js'], {
     cwd: SERVER_ROOT,
-    env: { ...process.env, PORT: String(PORTA_SMOKE) },
+    env: {
+      ...process.env,
+      PORT: String(PORTA_SMOKE),
+      VINCULO_RATE_LIMIT_MAX: '5',
+      AUTH_RATE_LIMIT_MAX: '100',
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
-  let tokenPrincipal = null;
-  let tokenOutroUsuario = null;
+  const tokensParaLimpar = [];
   const arquivosTempCriados = [];
 
   try {
     await aguardarServidorPronto(servidorProc);
-    registrarResultado('Inicialização do servidor Express + MongoDB + Dicionário', true, `Porta ${PORTA_SMOKE}`);
+    registrarResultado(
+      '0. Inicialização do servidor Express + MongoDB + Dicionário',
+      true,
+      `Porta ${PORTA_SMOKE}`
+    );
 
     const sufixo = Date.now();
-    const emailPrincipal = `smoke_${sufixo}@rotuscan.test`;
-    const emailOutro = `smoke_outro_${sufixo}@rotuscan.test`;
     const senhaPadrao = 'Teste@123';
 
-    // 1. Cadastro com níveis de sensibilidade (lactose: 0 Leve, gluten: 2 Grave)
-    const regResp = await fetch(`${BASE_URL}/auth/register`, {
+    // 1. Registrar Nutricionista 1 e receber codigoVinculo
+    const emailNutri1 = `nutri1_${sufixo}@rotuscan.test`;
+    const regNutri1Resp = await fetch(`${BASE_URL}/auth/register-nutricionista`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        nome: 'Usuário Smoke Test',
-        email: emailPrincipal,
+        nome: 'Mauro Nutricionista',
+        email: emailNutri1,
         senha: senhaPadrao,
+        crn: 'CRN-3 12345',
+        tratamento: 'Dr.',
+      }),
+    });
+    const regNutri1Data = await regNutri1Resp.json();
+    const tokenNutri1 = regNutri1Data.token;
+    const codigoNutri1 = regNutri1Data.codigoVinculo;
+    if (tokenNutri1) tokensParaLimpar.push(tokenNutri1);
+
+    registrarResultado(
+      '1. POST /auth/register-nutricionista cria NUTRICIONISTA e gera código de 8 chars',
+      regNutri1Resp.status === 201 &&
+        regNutri1Data.role === 'NUTRICIONISTA' &&
+        typeof codigoNutri1 === 'string' &&
+        codigoNutri1.length === 8 &&
+        !/[ILO01]/.test(codigoNutri1),
+      `HTTP ${regNutri1Resp.status} | codigo=${codigoNutri1} (${regNutri1Data.codigoVinculoFormatado})`
+    );
+
+    // 2. Registrar Nutricionista 2 (para testar isolamento 403)
+    const emailNutri2 = `nutri2_${sufixo}@rotuscan.test`;
+    const regNutri2Resp = await fetch(`${BASE_URL}/auth/register-nutricionista`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        nome: 'Ana Nutricionista',
+        email: emailNutri2,
+        senha: senhaPadrao,
+        crn: 'CRN-3 99999',
+        tratamento: 'Dra.',
+      }),
+    });
+    const regNutri2Data = await regNutri2Resp.json();
+    const tokenNutri2 = regNutri2Data.token;
+    if (tokenNutri2) tokensParaLimpar.push(tokenNutri2);
+
+    // 3. GET /vinculo/nutricionista/:codigo (válido com hífen/minúsculas e inexistente)
+    const codigoComMascaraMinusculo = `${codigoNutri1.slice(0, 4).toLowerCase()}-${codigoNutri1.slice(4).toLowerCase()}`;
+    const vincValidoResp = await fetch(
+      `${BASE_URL}/vinculo/nutricionista/${codigoComMascaraMinusculo}`
+    );
+    const vincValidoData = await vincValidoResp.json();
+
+    const vincInvalidoResp = await fetch(
+      `${BASE_URL}/vinculo/nutricionista/ZZZZ9999`
+    );
+    const vincInvalidoData = await vincInvalidoResp.json();
+
+    registrarResultado(
+      '2. GET /vinculo/nutricionista/:codigo (válido e 404 inexistente)',
+      vincValidoResp.status === 200 &&
+        vincValidoData.nome === 'Mauro Nutricionista' &&
+        vincValidoData.tratamento === 'Dr.' &&
+        vincInvalidoResp.status === 404 &&
+        vincInvalidoData.mensagem === 'Código não encontrado',
+      `válido=${vincValidoResp.status} (${vincValidoData.tratamento} ${vincValidoData.nome}) | inexistente=${vincInvalidoResp.status}`
+    );
+
+    // 4. Registrar Paciente 1 COM código + tentando injetar role='NUTRICIONISTA' no body
+    const emailPac1 = `pac1_${sufixo}@rotuscan.test`;
+    const regPac1Resp = await fetch(`${BASE_URL}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        nome: 'Paciente Vinculado',
+        email: emailPac1,
+        senha: senhaPadrao,
+        role: 'NUTRICIONISTA', // Deve ser ignorado pelo servidor!
+        codigoNutricionista: codigoComMascaraMinusculo,
         restricoes: ['gluten', 'lactose'],
-        niveisSensibilidade: { gluten: 2, lactose: 0, amendoim: 1 },
+        niveisSensibilidade: { gluten: 2, lactose: 1, amendoim: 1 },
       }),
     });
-    const regData = await regResp.json();
-    tokenPrincipal = regData.token;
+    const regPac1Data = await regPac1Resp.json();
+    const tokenPac1 = regPac1Data.token;
+    const idPac1 = regPac1Data.usuario?.id;
+    if (tokenPac1) tokensParaLimpar.push(tokenPac1);
+
     registrarResultado(
-      '1. POST /auth/register com restrições e níveis',
-      regResp.status === 201 &&
-        Boolean(tokenPrincipal) &&
-        regData.usuario?.niveisSensibilidade?.lactose === 0 &&
-        regData.usuario?.niveisSensibilidade?.gluten === 2,
-      `HTTP ${regResp.status} | id=${regData.usuario?.id}`
+      '3. POST /auth/register COM código vincula paciente e ignora role malicioso no body',
+      regPac1Resp.status === 201 &&
+        regPac1Data.usuario?.role === 'PACIENTE' &&
+        regPac1Data.nutricionista?.nome === 'Mauro Nutricionista',
+      `role=${regPac1Data.usuario?.role} | nutri=${regPac1Data.nutricionista?.nome}`
     );
 
-    // Cadastro de segundo usuário para testar isolamento (403)
-    const regOutroResp = await fetch(`${BASE_URL}/auth/register`, {
+    // 5. Registrar Paciente 2 SEM código (fará scan ANTES de vincular para testar visibilidade temporal)
+    const emailPac2 = `pac2_${sufixo}@rotuscan.test`;
+    const regPac2Resp = await fetch(`${BASE_URL}/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        nome: 'Outro Usuário Smoke',
-        email: emailOutro,
+        nome: 'Paciente Sem Codigo Inicial',
+        email: emailPac2,
         senha: senhaPadrao,
-        restricoes: ['amendoim'],
+        restricoes: ['gluten'],
+        niveisSensibilidade: { gluten: 1, lactose: 1, amendoim: 1 },
       }),
     });
-    const regOutroData = await regOutroResp.json();
-    tokenOutroUsuario = regOutroData.token;
+    const regPac2Data = await regPac2Resp.json();
+    const tokenPac2 = regPac2Data.token;
+    const idPac2 = regPac2Data.usuario?.id;
+    if (tokenPac2) tokensParaLimpar.push(tokenPac2);
 
-    // 2. Login
-    const loginResp = await fetch(`${BASE_URL}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: emailPrincipal, senha: senhaPadrao }),
-    });
-    const loginData = await loginResp.json();
     registrarResultado(
-      '2. POST /auth/login retorna JWT e perfil público',
-      loginResp.status === 200 && Boolean(loginData.token) && loginData.usuario?.email === emailPrincipal,
-      `HTTP ${loginResp.status}`
+      '4. POST /auth/register SEM código cria paciente sem vínculo',
+      regPac2Resp.status === 201 && regPac2Data.nutricionista === null,
+      `HTTP ${regPac2Resp.status} | id=${idPac2}`
     );
 
-    // 3. GET /users/perfil
-    const perfilResp = await fetch(`${BASE_URL}/users/perfil`, {
-      headers: { Authorization: `Bearer ${tokenPrincipal}` },
-    });
-    const perfilData = await perfilResp.json();
-    registrarResultado(
-      '3. GET /users/perfil retorna dados + stats (America/Sao_Paulo)',
-      perfilResp.status === 200 &&
-        Array.isArray(perfilData.restricoes) &&
-        perfilData.stats?.metaMensal === 50,
-      `HTTP ${perfilResp.status} | restricoes=[${perfilData.restricoes?.join(', ')}]`
-    );
-
-    // 4. Scanner Caso A: Contém trigo (PERIGOSO / CONTEM)
+    // 6. Gerar imagem e realizar Scan no Paciente 1 (vinculado) e Scan ANTERIOR ao vínculo no Paciente 2
     const imgTrigo = await gerarImagemRotulo(
       [
         'INGREDIENTES: Farinha de trigo enriquecida com ferro,',
@@ -201,222 +264,327 @@ async function executarSmokeTest() {
     );
     arquivosTempCriados.push(imgTrigo);
 
-    const scanTrigo = await enviarImagemScanner(tokenPrincipal, imgTrigo);
-    const idScanTrigo = scanTrigo.data?.id;
-    registrarResultado(
-      '4. POST /scanner — Rótulo com trigo (CONTEM Glúten -> PERIGOSO)',
-      scanTrigo.status === 200 &&
-        scanTrigo.data.veredito === 'PERIGOSO' &&
-        scanTrigo.data.nomeProduto === 'Produto com Glúten' &&
-        scanTrigo.data.alergicosDetectados?.some((a) => a.categoria === 'gluten' && a.tipo === 'CONTEM'),
-      `veredito=${scanTrigo.data.veredito} | nome="${scanTrigo.data.nomeProduto}"`
-    );
+    const scanPac1 = await enviarImagemScanner(tokenPac1, imgTrigo);
+    const idScanPac1 = scanPac1.data?.id;
 
-    // 5. Scanner Caso B: Negação "não contém glúten" e "sem lactose" (SEGURO)
-    const imgNegacao = await gerarImagemRotulo(
-      [
-        'INGREDIENTES: Farinha de arroz integral, amido de milho,',
-        'agua purificada, sal marinho e oleo vegetal de girassol.',
-        'INFORMACAO: NAO CONTEM GLUTEN. PRODUTO SEM LACTOSE.',
-      ],
-      `smoke_negacao_${sufixo}.png`
-    );
-    arquivosTempCriados.push(imgNegacao);
+    const scanPac2AntesVinculo = await enviarImagemScanner(tokenPac2, imgTrigo);
+    const idScanPac2Antigo = scanPac2AntesVinculo.data?.id;
 
-    const scanNegacao = await enviarImagemScanner(tokenPrincipal, imgNegacao);
-    registrarResultado(
-      '5. POST /scanner — Negação "NÃO CONTÉM GLÚTEN / SEM LACTOSE" -> SEGURO',
-      scanNegacao.status === 200 && scanNegacao.data.veredito === 'SEGURO',
-      `veredito=${scanNegacao.data.veredito} | nome="${scanNegacao.data.nomeProduto}"`
-    );
-
-    // 6. Scanner Caso C: "pode conter leite" com sensibilidade lactose = 0 (Leve -> ignora traços -> SEGURO)
-    const imgTracosLeite = await gerarImagemRotulo(
-      [
-        'INGREDIENTES: Farinha de arroz, acucar demerara,',
-        'cacau em po alcalino, oleo de coco e sal marinho.',
-        'ALERGICOS: PODE CONTER LEITE. NAO CONTEM GLUTEN.',
-      ],
-      `smoke_tracos_${sufixo}.png`
-    );
-    arquivosTempCriados.push(imgTracosLeite);
-
-    const scanTracosLeve = await enviarImagemScanner(tokenPrincipal, imgTracosLeite);
-    registrarResultado(
-      '6. POST /scanner — "PODE CONTER LEITE" com nível 0 (Leve) -> SEGURO',
-      scanTracosLeve.status === 200 && scanTracosLeve.data.veredito === 'SEGURO',
-      `veredito=${scanTracosLeve.data.veredito}`
-    );
-
-    // 7. PUT /users/restricoes alterando lactose para nível 1 (Moderado) e confirmando no banco
-    const putRestResp = await fetch(`${BASE_URL}/users/restricoes`, {
-      method: 'PUT',
+    // Aguarda 50ms e vincula Paciente 2 ao Nutricionista 1 DEPOIS do primeiro scan
+    await new Promise((r) => setTimeout(r, 60));
+    const vincPac2Resp = await fetch(`${BASE_URL}/users/vinculo`, {
+      method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${tokenPrincipal}`,
+        Authorization: `Bearer ${tokenPac2}`,
       },
-      body: JSON.stringify({
-        restricoes: ['gluten', 'lactose'],
-        niveisSensibilidade: { gluten: 2, lactose: 1, amendoim: 1 },
-      }),
+      body: JSON.stringify({ codigo: codigoNutri1 }),
     });
-    const putRestData = await putRestResp.json();
-    registrarResultado(
-      '7. PUT /users/restricoes persiste nível lactose=1 (Moderado)',
-      putRestResp.status === 200 && putRestData.usuario?.niveisSensibilidade?.lactose === 1,
-      `HTTP ${putRestResp.status} | lactose=${putRestData.usuario?.niveisSensibilidade?.lactose}`
-    );
 
-    // 8. Scanner Caso D: Mesma imagem "pode conter leite" agora com nível 1 (Moderado -> PERIGOSO / TRACOS)
-    const scanTracosModerado = await enviarImagemScanner(tokenPrincipal, imgTracosLeite);
-    registrarResultado(
-      '8. POST /scanner — "PODE CONTER LEITE" com nível 1 (Moderado) -> PERIGOSO (TRACOS)',
-      scanTracosModerado.status === 200 &&
-        scanTracosModerado.data.veredito === 'PERIGOSO' &&
-        scanTracosModerado.data.alergicosDetectados?.some(
-          (a) => a.categoria === 'lactose' && a.tipo === 'TRACOS'
-        ),
-      `veredito=${scanTracosModerado.data.veredito} | nome="${scanTracosModerado.data.nomeProduto}"`
-    );
-
-    // 9. Scanner Caso E: Imagem com texto curto/ilegível (< 40 chars) -> INCONCLUSIVO (não salva)
-    const imgIlegivel = await gerarImagemRotulo(['123 ABC'], `smoke_ilegivel_${sufixo}.png`);
-    arquivosTempCriados.push(imgIlegivel);
-
-    const scanIlegivel = await enviarImagemScanner(tokenPrincipal, imgIlegivel);
-    registrarResultado(
-      '9. POST /scanner — Texto curto/ilegível -> INCONCLUSIVO (sem gravar ScanLog)',
-      scanIlegivel.status === 200 &&
-        scanIlegivel.data.veredito === 'INCONCLUSIVO' &&
-        !scanIlegivel.data.id,
-      `veredito=${scanIlegivel.data.veredito}`
-    );
-
-    // 10. Histórico: filtros, paginação e busca sem acento ("gluten" encontra "Produto com Glúten")
-    const histTodosResp = await fetch(`${BASE_URL}/users/historico?limit=2&page=1`, {
-      headers: { Authorization: `Bearer ${tokenPrincipal}` },
-    });
-    const histTodos = await histTodosResp.json();
-
-    const histBuscaResp = await fetch(`${BASE_URL}/users/historico?busca=gluten`, {
-      headers: { Authorization: `Bearer ${tokenPrincipal}` },
-    });
-    const histBusca = await histBuscaResp.json();
-
-    const histRiscoResp = await fetch(`${BASE_URL}/users/historico?filtro=Risco`, {
-      headers: { Authorization: `Bearer ${tokenPrincipal}` },
-    });
-    const histRisco = await histRiscoResp.json();
+    // Agora Paciente 2 faz um segundo scan APÓS o vínculo
+    await new Promise((r) => setTimeout(r, 60));
+    const scanPac2DepoisVinculo = await enviarImagemScanner(tokenPac2, imgTrigo);
+    const idScanPac2Novo = scanPac2DepoisVinculo.data?.id;
 
     registrarResultado(
-      '10. GET /users/historico — Filtros, paginação e busca "gluten" sem acento',
-      histTodos.total === 4 &&
-        histTodos.itens?.length === 2 &&
-        histTodos.temMais === true &&
-        histRisco.total === 2 &&
-        histBusca.itens?.some((i) => i.nomeProduto === 'Produto com Glúten'),
-      `total=${histTodos.total} | risco=${histRisco.total} | busca("gluten")=${histBusca.total}`
+      '5. POST /scanner grava ScanLog e POST /users/vinculo vincula Paciente 2',
+      scanPac1.status === 200 &&
+        Boolean(idScanPac1) &&
+        vincPac2Resp.status === 200 &&
+        Boolean(idScanPac2Antigo) &&
+        Boolean(idScanPac2Novo),
+      `scanPac1=${idScanPac1} | scanAntigo=${idScanPac2Antigo} | scanNovo=${idScanPac2Novo}`
     );
 
-    // 11. Curtir item e renomear produto
-    const curtirResp = await fetch(`${BASE_URL}/users/historico/${idScanTrigo}/curtir`, {
-      method: 'PATCH',
+    // 7. PATCH /users/historico/:id — válido (nome, marca, peso), vazio, id inválido (400), log de outro usuário (403)
+    const patchValidoResp = await fetch(
+      `${BASE_URL}/users/historico/${idScanPac1}`,
+      {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tokenPac1}`,
+        },
+        body: JSON.stringify({
+          nomeProduto: 'Biscoito Água e Sal',
+          marca: 'Marca Crocante',
+          peso: '200g',
+        }),
+      }
+    );
+    const patchValidoData = await patchValidoResp.json();
+
+    const patchVazioResp = await fetch(
+      `${BASE_URL}/users/historico/${idScanPac1}`,
+      {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tokenPac1}`,
+        },
+        body: JSON.stringify({ nomeProduto: '   ' }),
+      }
+    );
+
+    const patchIdInvalidoResp = await fetch(
+      `${BASE_URL}/users/historico/id-invalido-123`,
+      {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tokenPac1}`,
+        },
+        body: JSON.stringify({ nomeProduto: 'Teste' }),
+      }
+    );
+    const patchIdInvalidoData = await patchIdInvalidoResp.json();
+
+    const patchOutroUserResp = await fetch(
+      `${BASE_URL}/users/historico/${idScanPac1}`,
+      {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tokenPac2}`,
+        },
+        body: JSON.stringify({ nomeProduto: 'Tentativa Invasao' }),
+      }
+    );
+
+    registrarResultado(
+      '6. PATCH /users/historico/:id (válido 200, nome vazio 400, id inválido 400, outro usuário 403)',
+      patchValidoResp.status === 200 &&
+        patchValidoData.nomeProduto === 'Biscoito Água e Sal' &&
+        patchValidoData.marca === 'Marca Crocante' &&
+        patchValidoData.peso === '200g' &&
+        patchValidoData.marcaPeso === 'Marca Crocante • 200g' &&
+        patchValidoData.nomeAutomatico === false &&
+        patchVazioResp.status === 400 &&
+        patchIdInvalidoResp.status === 400 &&
+        patchIdInvalidoData.mensagem === 'Identificador inválido' &&
+        patchOutroUserResp.status === 403,
+      `200="${patchValidoData.marcaPeso}" | vazio=${patchVazioResp.status} | idInv=${patchIdInvalidoResp.status} | outro=${patchOutroUserResp.status}`
+    );
+
+    // 8. POST /feedback — válido (201), vazio (400) e limite de 5 por hora (429 na 6ª tentativa)
+    const fbVazioResp = await fetch(`${BASE_URL}/feedback`, {
+      method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${tokenPrincipal}`,
+        Authorization: `Bearer ${tokenPac1}`,
       },
-      body: JSON.stringify({ curtido: true }),
+      body: JSON.stringify({ mensagem: 'Oi', tipo: 'SUGESTAO' }), // < 3 chars
     });
-    const curtirData = await curtirResp.json();
 
-    const renomearResp = await fetch(`${BASE_URL}/users/historico/${idScanTrigo}`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${tokenPrincipal}`,
-      },
-      body: JSON.stringify({ nomeProduto: 'Pão de Forma Integral', marcaPeso: 'Marca Teste • 400g' }),
-    });
-    const renomearData = await renomearResp.json();
+    const statusFeedbacks = [];
+    for (let i = 1; i <= 6; i++) {
+      const r = await fetch(`${BASE_URL}/feedback`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tokenPac1}`,
+        },
+        body: JSON.stringify({
+          mensagem: `Feedback de teste número ${i} enviado pelo smoke test.`,
+          tipo: 'SUGESTAO',
+          plataforma: 'android',
+          appVersao: '1.0.0',
+        }),
+      });
+      statusFeedbacks.push(r.status);
+    }
 
     registrarResultado(
-      '11. PATCH /users/historico/:id (renomear) e /:id/curtir (favoritar)',
-      curtirResp.status === 200 &&
-        curtirData.curtido === true &&
-        renomearResp.status === 200 &&
-        renomearData.item?.nomeProduto === 'Pão de Forma Integral' &&
-        renomearData.item?.nomeAutomatico === false,
-      `curtido=${curtirData.curtido} | nome="${renomearData.item?.nomeProduto}"`
+      '7. POST /feedback (vazio 400, 5 envios 201 e 6º envio bloqueado com 429)',
+      fbVazioResp.status === 400 &&
+        statusFeedbacks.slice(0, 5).every((s) => s === 201) &&
+        statusFeedbacks[5] === 429,
+      `curto=${fbVazioResp.status} | sequência=[${statusFeedbacks.join(', ')}]`
     );
 
-    // 12. GET /users/historico/:id/imagem (200 para o dono, 403 para outro usuário)
-    const imgDonoResp = await fetch(`${BASE_URL}/users/historico/${idScanTrigo}/imagem`, {
-      headers: { Authorization: `Bearer ${tokenPrincipal}` },
+    // 9. Nutricionista 1 lista pacientes, vê histórico e imagem do paciente vinculado, e NÃO vê scan anterior ao vínculo
+    const listaPacResp = await fetch(`${BASE_URL}/nutri/pacientes`, {
+      headers: { Authorization: `Bearer ${tokenNutri1}` },
     });
-    const imgOutroResp = await fetch(`${BASE_URL}/users/historico/${idScanTrigo}/imagem`, {
-      headers: { Authorization: `Bearer ${tokenOutroUsuario}` },
-    });
+    const listaPacData = await listaPacResp.json();
+
+    const histPac2NutriResp = await fetch(
+      `${BASE_URL}/nutri/pacientes/${idPac2}/historico`,
+      {
+        headers: { Authorization: `Bearer ${tokenNutri1}` },
+      }
+    );
+    const histPac2NutriData = await histPac2NutriResp.json();
+
+    const imgScanNovoNutriResp = await fetch(
+      `${BASE_URL}/nutri/pacientes/${idPac2}/historico/${idScanPac2Novo}/imagem`,
+      {
+        headers: { Authorization: `Bearer ${tokenNutri1}` },
+      }
+    );
+
+    const imgScanAntigoNutriResp = await fetch(
+      `${BASE_URL}/nutri/pacientes/${idPac2}/historico/${idScanPac2Antigo}/imagem`,
+      {
+        headers: { Authorization: `Bearer ${tokenNutri1}` },
+      }
+    );
+
+    const idsHistoricoVisivelPac2 = (histPac2NutriData.itens || []).map(
+      (i) => i.id
+    );
 
     registrarResultado(
-      '12. GET /users/historico/:id/imagem (200 dono vs 403 outro usuário)',
-      imgDonoResp.status === 200 && imgOutroResp.status === 403,
-      `dono=${imgDonoResp.status} | outro=${imgOutroResp.status}`
+      '8. Nutricionista lista pacientes, vê scan/imagem pós-vínculo e NÃO vê scan pré-vínculo',
+      listaPacResp.status === 200 &&
+        listaPacData.total === 2 &&
+        idsHistoricoVisivelPac2.includes(idScanPac2Novo) &&
+        !idsHistoricoVisivelPac2.includes(idScanPac2Antigo) &&
+        imgScanNovoNutriResp.status === 200 &&
+        imgScanAntigoNutriResp.status === 403,
+      `pacientes=${listaPacData.total} | visíveisPac2=${idsHistoricoVisivelPac2.length} | imgNova=${imgScanNovoNutriResp.status} | imgAntiga=${imgScanAntigoNutriResp.status}`
     );
 
-    // 13. DELETE /users/me (apaga apenas a conta de teste criada pelo próprio smoke test)
-    const delPrincipalResp = await fetch(`${BASE_URL}/users/me`, {
+    // 10. Outro nutricionista (Nutricionista 2) recebe 403 ao tentar acessar Paciente 1
+    const outroNutriResp = await fetch(
+      `${BASE_URL}/nutri/pacientes/${idPac1}/historico`,
+      {
+        headers: { Authorization: `Bearer ${tokenNutri2}` },
+      }
+    );
+
+    registrarResultado(
+      '9. Outro nutricionista não vinculado recebe 403 ao acessar paciente',
+      outroNutriResp.status === 403,
+      `HTTP ${outroNutriResp.status}`
+    );
+
+    // 11. PUT /nutri/pacientes/:id/restricoes atualiza perfil do paciente com restricoesAtualizadasPor='NUTRICIONISTA'
+    const putNutriRestResp = await fetch(
+      `${BASE_URL}/nutri/pacientes/${idPac1}/restricoes`,
+      {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${tokenNutri1}`,
+        },
+        body: JSON.stringify({
+          restricoes: ['gluten', 'lactose', 'amendoim'],
+          niveisSensibilidade: { gluten: 2, lactose: 2, amendoim: 2 },
+        }),
+      }
+    );
+
+    const perfilPac1AposNutriResp = await fetch(`${BASE_URL}/users/perfil`, {
+      headers: { Authorization: `Bearer ${tokenPac1}` },
+    });
+    const perfilPac1AposNutri = await perfilPac1AposNutriResp.json();
+
+    registrarResultado(
+      '10. PUT /nutri/pacientes/:id/restricoes reflete em GET /users/perfil do paciente',
+      putNutriRestResp.status === 200 &&
+        perfilPac1AposNutri.restricoes?.length === 3 &&
+        perfilPac1AposNutri.restricoesAtualizadasPor === 'NUTRICIONISTA' &&
+        Boolean(perfilPac1AposNutri.restricoesAtualizadasEm),
+      `por=${perfilPac1AposNutri.restricoesAtualizadasPor} | restricoes=[${perfilPac1AposNutri.restricoes?.join(', ')}]`
+    );
+
+    // 12. Paciente 2 desvincula (DELETE /users/vinculo) e Nutricionista 1 perde o acesso (403)
+    const delVincPac2Resp = await fetch(`${BASE_URL}/users/vinculo`, {
       method: 'DELETE',
-      headers: { Authorization: `Bearer ${tokenPrincipal}` },
-    });
-    const delOutroResp = await fetch(`${BASE_URL}/users/me`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${tokenOutroUsuario}` },
-    });
-    const perfilAposDelete = await fetch(`${BASE_URL}/users/perfil`, {
-      headers: { Authorization: `Bearer ${tokenPrincipal}` },
+      headers: { Authorization: `Bearer ${tokenPac2}` },
     });
 
-    tokenPrincipal = null;
-    tokenOutroUsuario = null;
+    const nutriTentaPac2AposDesvinculo = await fetch(
+      `${BASE_URL}/nutri/pacientes/${idPac2}`,
+      {
+        headers: { Authorization: `Bearer ${tokenNutri1}` },
+      }
+    );
 
     registrarResultado(
-      '13. DELETE /users/me remove conta de teste, ScanLogs e miniaturas',
-      delPrincipalResp.status === 200 &&
-        delOutroResp.status === 200 &&
-        perfilAposDelete.status === 404,
-      `DELETE=${delPrincipalResp.status} | GET após delete=${perfilAposDelete.status}`
+      '11. DELETE /users/vinculo desvincula paciente e nutricionista perde acesso (403)',
+      delVincPac2Resp.status === 200 &&
+        nutriTentaPac2AposDesvinculo.status === 403,
+      `desvinculo=${delVincPac2Resp.status} | acessoNutriApos=${nutriTentaPac2AposDesvinculo.status}`
+    );
+
+    // 13. Rate limit em GET /vinculo/nutricionista/:codigo (configurado em 5 no env do smoke)
+    const statusRateLimit = [];
+    for (let i = 0; i < 6; i++) {
+      const r = await fetch(`${BASE_URL}/vinculo/nutricionista/${codigoNutri1}`);
+      statusRateLimit.push(r.status);
+    }
+
+    registrarResultado(
+      '12. Rate Limit (express-rate-limit) bloqueia excesso de tentativas com HTTP 429',
+      statusRateLimit.includes(429),
+      `statuses=[${statusRateLimit.join(', ')}]`
+    );
+
+    // 14. DELETE /users/me de nutricionista NÃO apaga Paciente 1 (apenas limpa nutricionistaId dele)
+    const delNutri1Resp = await fetch(`${BASE_URL}/users/me`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${tokenNutri1}` },
+    });
+
+    const perfilPac1AposDelNutriResp = await fetch(`${BASE_URL}/users/perfil`, {
+      headers: { Authorization: `Bearer ${tokenPac1}` },
+    });
+    const perfilPac1AposDelNutri = await perfilPac1AposDelNutriResp.json();
+
+    // Agora limpa Paciente 1, Paciente 2 e Nutricionista 2
+    const delPac1Resp = await fetch(`${BASE_URL}/users/me`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${tokenPac1}` },
+    });
+    const delPac2Resp = await fetch(`${BASE_URL}/users/me`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${tokenPac2}` },
+    });
+    const delNutri2Resp = await fetch(`${BASE_URL}/users/me`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${tokenNutri2}` },
+    });
+
+    tokensParaLimpar.length = 0;
+
+    registrarResultado(
+      '13. DELETE /users/me (nutricionista preserva pacientes; paciente apaga conta, logs, feedbacks e imagens)',
+      delNutri1Resp.status === 200 &&
+        perfilPac1AposDelNutriResp.status === 200 &&
+        perfilPac1AposDelNutri.nutricionista === null &&
+        delPac1Resp.status === 200 &&
+        delPac2Resp.status === 200 &&
+        delNutri2Resp.status === 200,
+      `delNutri=${delNutri1Resp.status} | pac1ContinuaVivo=${perfilPac1AposDelNutriResp.status} (nutri=${perfilPac1AposDelNutri.nutricionista}) | delPac1=${delPac1Resp.status}`
     );
   } catch (err) {
     registrarResultado('Execução do Smoke Test', false, err.message);
     process.exitCode = 1;
   } finally {
-    // Limpeza garantida caso alguma etapa tenha falhado antes do DELETE /users/me
-    for (const tk of [tokenPrincipal, tokenOutroUsuario]) {
+    for (const tk of tokensParaLimpar) {
       if (tk) {
         try {
           await fetch(`${BASE_URL}/users/me`, {
             method: 'DELETE',
             headers: { Authorization: `Bearer ${tk}` },
           });
-        } catch {
-          // ignora
-        }
+        } catch {}
       }
     }
 
     for (const arq of arquivosTempCriados) {
       try {
         if (fs.existsSync(arq)) fs.unlinkSync(arq);
-      } catch {
-        // ignora
-      }
+      } catch {}
     }
 
     servidorProc.kill();
   }
 
   console.log('\n======================================================================');
-  console.log('RESUMO DO SMOKE TEST');
+  console.log('RESUMO DO SMOKE TEST (ENTREGA 1)');
   console.log('======================================================================');
   console.table(resultados);
 
@@ -430,4 +598,3 @@ async function executarSmokeTest() {
 }
 
 executarSmokeTest();
-

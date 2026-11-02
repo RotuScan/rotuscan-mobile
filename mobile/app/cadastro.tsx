@@ -131,14 +131,15 @@ export default function CadastroScreen() {
     }
 
     // Mantém os dados apenas em memória (AuthContext) — a senha nunca vai para o AsyncStorage
-    setRascunhoCadastro({
+    setRascunhoCadastro((prev) => ({
+      ...prev,
       nome: nomeLimpo,
       email: emailLimpo,
       senha,
       repetirSenha,
-    });
+    }));
 
-    router.push("/selectIntolerancia" as never);
+    router.push("/vincular-nutricionista?modo=cadastro" as never);
   };
 
   if (!fontsLoaded) {

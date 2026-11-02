@@ -11,11 +11,6 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Feather } from "@expo/vector-icons";
 import { API_URL } from "../services/api";
 
-/**
- * Mapa preparado (e vazio por padrão) para imagens estáticas de demonstração
- * que futuramente serão adicionadas em mobile/assets/produtos/.
- * NUNCA faça require() de arquivos que ainda não existem no disco.
- */
 export const IMAGEM_DEMO_MAP: Record<string, any> = {};
 
 const ICONES_ALERGENO: Record<string, any> = {
@@ -25,6 +20,7 @@ const ICONES_ALERGENO: Record<string, any> = {
 };
 
 type ScanThumbProps = {
+  imagemUri?: string | null;
   imagemUrl?: string | null;
   imagemDemo?: string | null;
   localUri?: string | null;
@@ -35,6 +31,7 @@ type ScanThumbProps = {
 };
 
 export default function ScanThumb({
+  imagemUri,
   imagemUrl,
   imagemDemo,
   localUri,
@@ -55,7 +52,7 @@ export default function ScanThumb({
     return () => {
       ativo = false;
     };
-  }, [imagemUrl, localUri]);
+  }, [imagemUri, imagemUrl, localUri]);
 
   // 1. URI local recém-capturada pela câmera
   if (localUri && !erroImagem) {
@@ -71,7 +68,26 @@ export default function ScanThumb({
     );
   }
 
-  // 2. Imagem de demonstração mapeada localmente (se existir no mapa)
+  // 2. imagemUri persistida no MongoDB (data:image/jpeg;base64,... ou URL direta)
+  if (imagemUri && !erroImagem) {
+    const uriResolvida =
+      imagemUri.startsWith("data:") || imagemUri.startsWith("http")
+        ? imagemUri
+        : `${API_URL}${imagemUri.startsWith("/") ? "" : "/"}${imagemUri}`;
+
+    return (
+      <View style={[styles.container, style]}>
+        <Image
+          source={{ uri: uriResolvida }}
+          style={styles.fullImage}
+          resizeMode={resizeMode}
+          onError={() => setErroImagem(true)}
+        />
+      </View>
+    );
+  }
+
+  // 3. Imagem de demonstração mapeada localmente
   if (imagemDemo && IMAGEM_DEMO_MAP[imagemDemo] && !erroImagem) {
     return (
       <View style={[styles.container, style]}>
@@ -85,30 +101,45 @@ export default function ScanThumb({
     );
   }
 
-  // 3. Miniatura autenticada do servidor GET /users/historico/:id/imagem
-  if (imagemUrl && token && !erroImagem) {
-    const urlCompleta = imagemUrl.startsWith("http")
-      ? imagemUrl
-      : `${API_URL}${imagemUrl.startsWith("/") ? "" : "/"}${imagemUrl}`;
+  // 4. Miniatura autenticada do servidor GET /users/historico/:id/imagem
+  if (imagemUrl && !erroImagem) {
+    if (imagemUrl.startsWith("data:")) {
+      return (
+        <View style={[styles.container, style]}>
+          <Image
+            source={{ uri: imagemUrl }}
+            style={styles.fullImage}
+            resizeMode={resizeMode}
+            onError={() => setErroImagem(true)}
+          />
+        </View>
+      );
+    }
 
-    return (
-      <View style={[styles.container, style]}>
-        <Image
-          source={{
-            uri: urlCompleta,
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }}
-          style={styles.fullImage}
-          resizeMode={resizeMode}
-          onError={() => setErroImagem(true)}
-        />
-      </View>
-    );
+    if (token) {
+      const urlCompleta = imagemUrl.startsWith("http")
+        ? imagemUrl
+        : `${API_URL}${imagemUrl.startsWith("/") ? "" : "/"}${imagemUrl}`;
+
+      return (
+        <View style={[styles.container, style]}>
+          <Image
+            source={{
+              uri: urlCompleta,
+              headers: {
+                Authorization: `Bearer ${token}`,
+              },
+            }}
+            style={styles.fullImage}
+            resizeMode={resizeMode}
+            onError={() => setErroImagem(true)}
+          />
+        </View>
+      );
+    }
   }
 
-  // 4. Placeholder com o ícone do alérgeno principal ou ícone neutro
+  // 5. Placeholder com o ícone do alérgeno principal ou ícone neutro
   const catNorm = (categoriaPrincipal || "").toLowerCase();
   const iconeAlergeno = ICONES_ALERGENO[catNorm];
 
@@ -142,4 +173,3 @@ const styles = StyleSheet.create({
     height: "100%",
   },
 });
-

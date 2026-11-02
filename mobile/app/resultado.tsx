@@ -48,12 +48,17 @@ type DetalheScan = {
   id: string;
   nomeProduto: string;
   nomeAutomatico: boolean;
+  marca?: string;
+  peso?: string;
   marcaPeso: string | null;
   veredito: "SEGURO" | "PERIGOSO" | "INCONCLUSIVO";
   alergicosDetectados: AlergicoDetectado[];
+  intoleranciaDetectada?: string[];
+  nivelSensibilidade?: string;
   ingredientesDetalhados: IngredienteDetalhado[];
   textoBruto: string;
   curtido: boolean;
+  imagemUri?: string | null;
   imagemUrl: string | null;
   imagemDemo: string | null;
   createdAt?: string;
@@ -98,11 +103,13 @@ export default function ResultadoDetalhadoScreen() {
     return null;
   });
 
-  // Edição inline de nome e marca/peso
+  // Edição inline de nome, marca e peso
   const [editandoMeta, setEditandoMeta] = useState(false);
   const [nomeInput, setNomeInput] = useState("");
   const [marcaInput, setMarcaInput] = useState("");
+  const [pesoInput, setPesoInput] = useState("");
   const [salvandoMeta, setSalvandoMeta] = useState(false);
+  const [sucessoMeta, setSucessoMeta] = useState<string | null>(null);
   const [togglingCurtir, setTogglingCurtir] = useState(false);
   const [mostrarTextoBruto, setMostrarTextoBruto] = useState(false);
 
@@ -126,7 +133,8 @@ export default function ResultadoDetalhadoScreen() {
         const d: DetalheScan = res.data;
         setDetalhe(d);
         setNomeInput(d.nomeProduto || "");
-        setMarcaInput(d.marcaPeso || "");
+        setMarcaInput(d.marca || "");
+        setPesoInput(d.peso || "");
       } catch (err: any) {
         setErro(extrairMensagemErro(err));
       } finally {
@@ -146,17 +154,55 @@ export default function ResultadoDetalhadoScreen() {
   const salvarNomeEMarca = async () => {
     if (!detalhe?.id || salvandoMeta) return;
     const limpo = nomeInput.trim();
+    const marcaLimpa = marcaInput.trim();
+    const pesoLimpo = pesoInput.trim();
+
     if (!limpo) {
       setErro("O nome do produto não pode ficar vazio.");
       return;
     }
+    if (limpo.length > 80) {
+      setErro("O nome do produto deve ter no máximo 80 caracteres.");
+      return;
+    }
+    if (marcaLimpa.length > 60) {
+      setErro("A marca deve ter no máximo 60 caracteres.");
+      return;
+    }
+    if (pesoLimpo.length > 30) {
+      setErro("O peso deve ter no máximo 30 caracteres.");
+      return;
+    }
 
+    const estadoAnterior = { ...detalhe };
+    const marcaPesoOtimista =
+      marcaLimpa && pesoLimpo
+        ? `${marcaLimpa} • ${pesoLimpo}`
+        : marcaLimpa || pesoLimpo || "";
+
+    // Atualização otimista imediata
+    setDetalhe((prev) =>
+      prev
+        ? {
+            ...prev,
+            nomeProduto: limpo,
+            nomeAutomatico: false,
+            marca: marcaLimpa,
+            peso: pesoLimpo,
+            marcaPeso: marcaPesoOtimista || null,
+          }
+        : prev
+    );
+    setEditandoMeta(false);
     setSalvandoMeta(true);
     setErro(null);
+    setSucessoMeta(null);
+
     try {
       const res = await api.patch(`/users/historico/${detalhe.id}`, {
         nomeProduto: limpo,
-        marcaPeso: marcaInput.trim() || null,
+        marca: marcaLimpa,
+        peso: pesoLimpo,
       });
       const atualizado = res.data?.item || res.data;
       setDetalhe((prev) =>
@@ -165,12 +211,19 @@ export default function ResultadoDetalhadoScreen() {
               ...prev,
               nomeProduto: atualizado.nomeProduto || limpo,
               nomeAutomatico: false,
-              marcaPeso: atualizado.marcaPeso ?? (marcaInput.trim() || null),
+              marca: atualizado.marca ?? marcaLimpa,
+              peso: atualizado.peso ?? pesoLimpo,
+              marcaPeso:
+                atualizado.marcaPeso ?? (marcaPesoOtimista || null),
             }
           : prev
       );
-      setEditandoMeta(false);
+      setSucessoMeta("Nome, marca e peso salvos com sucesso!");
+      setTimeout(() => setSucessoMeta(null), 3500);
     } catch (err: any) {
+      // Rollback em caso de erro
+      setDetalhe(estadoAnterior);
+      setEditandoMeta(true);
       setErro(extrairMensagemErro(err));
     } finally {
       setSalvandoMeta(false);
@@ -322,10 +375,18 @@ export default function ResultadoDetalhadoScreen() {
           </View>
         ) : null}
 
+        {sucessoMeta ? (
+          <View style={styles.sucessoBanner}>
+            <Ionicons name="checkmark-circle" size={16} color="#15803D" />
+            <Text style={styles.sucessoBannerText}>{sucessoMeta}</Text>
+          </View>
+        ) : null}
+
         {/* CARD DO PRODUTO (FOTO + NOME + MARCA/PESO) */}
         <View style={styles.productCard}>
           <ScanThumb
             localUri={params.localUri || null}
+            imagemUri={detalhe?.imagemUri}
             imagemUrl={detalhe?.imagemUrl}
             imagemDemo={detalhe?.imagemDemo}
             categoriaPrincipal={catPrincipal}
@@ -336,24 +397,40 @@ export default function ResultadoDetalhadoScreen() {
 
           {!ehInconclusivo && editandoMeta ? (
             <View style={styles.editMetaBox}>
-              <Text style={styles.editMetaLabel}>Nome do produto</Text>
+              <Text style={styles.editMetaLabel}>
+                Nome do produto ({nomeInput.length}/80)
+              </Text>
               <TextInput
                 value={nomeInput}
                 onChangeText={setNomeInput}
                 placeholder="Ex: Biscoito Integral"
                 placeholderTextColor="#9CA3AF"
+                maxLength={80}
                 style={styles.editMetaInput}
                 autoFocus
               />
 
               <Text style={styles.editMetaLabel}>
-                Marca / Peso (opcional)
+                Marca (opcional • {marcaInput.length}/60)
               </Text>
               <TextInput
                 value={marcaInput}
                 onChangeText={setMarcaInput}
-                placeholder="Ex: Marca ElmaChips • 100g"
+                placeholder="Ex: ElmaChips"
                 placeholderTextColor="#9CA3AF"
+                maxLength={60}
+                style={styles.editMetaInput}
+              />
+
+              <Text style={styles.editMetaLabel}>
+                Peso / Volume (opcional • {pesoInput.length}/30)
+              </Text>
+              <TextInput
+                value={pesoInput}
+                onChangeText={setPesoInput}
+                placeholder="Ex: 100g"
+                placeholderTextColor="#9CA3AF"
+                maxLength={30}
                 style={styles.editMetaInput}
               />
 
@@ -363,7 +440,8 @@ export default function ResultadoDetalhadoScreen() {
                   onPress={() => {
                     setEditandoMeta(false);
                     setNomeInput(detalhe?.nomeProduto || "");
-                    setMarcaInput(detalhe?.marcaPeso || "");
+                    setMarcaInput(detalhe?.marca || "");
+                    setPesoInput(detalhe?.peso || "");
                   }}
                   disabled={salvandoMeta}
                 >
@@ -771,6 +849,24 @@ const styles = StyleSheet.create({
     fontFamily: "Geist_500Medium",
     fontSize: 12,
     color: "#DC2626",
+  },
+  sucessoBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#DCFCE7",
+    borderWidth: 1,
+    borderColor: "#BBF7D0",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  sucessoBannerText: {
+    flex: 1,
+    fontFamily: "Geist_600SemiBold",
+    fontSize: 12,
+    color: "#15803D",
   },
   productCard: {
     backgroundColor: "#FFFFFF",

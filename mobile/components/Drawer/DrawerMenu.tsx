@@ -20,12 +20,6 @@ type DrawerMenuProps = {
 
 const MENU_ITEMS = [
   {
-    id: "home",
-    label: "Início",
-    icon: "home",
-    route: "/home",
-  },
-  {
     id: "perfil",
     label: "Meu Perfil",
     icon: "user",
@@ -40,7 +34,7 @@ const MENU_ITEMS = [
   {
     id: "historico",
     label: "Histórico",
-    icon: "clock",
+    icon: "rotate-ccw",
     route: "/historico",
   },
   {
@@ -51,7 +45,7 @@ const MENU_ITEMS = [
   },
   {
     id: "configuracoes",
-    label: "Definições",
+    label: "Configurações",
     icon: "settings",
     route: "/configuracoes",
   },
@@ -117,7 +111,8 @@ export default function DrawerMenu({ visible, onClose }: DrawerMenuProps) {
     router.replace("/login" as never);
   }
 
-  const inicialNome = (nomeUsuario || "U").trim().charAt(0).toUpperCase() || "U";
+  const inicialNome =
+    (nomeUsuario || "U").trim().charAt(0).toUpperCase() || "U";
 
   return (
     <Modal
@@ -131,7 +126,7 @@ export default function DrawerMenu({ visible, onClose }: DrawerMenuProps) {
         <Pressable style={styles.backdrop} onPress={onClose} />
 
         <View style={styles.drawer}>
-          {/* CABEÇALHO DO MENU COM FOTO REAL, NOME E E-MAIL */}
+          {/* CABEÇALHO DO MENU COM FOTO REAL, NOME E E-MAIL + CARD BRANCO PRINCIPAL */}
           <View>
             <View style={styles.headerBanner}>
               <View style={styles.headerTopRow}>
@@ -171,9 +166,8 @@ export default function DrawerMenu({ visible, onClose }: DrawerMenuProps) {
               ) : null}
             </View>
 
-            {/* LISTA DE NAVEGAÇÃO */}
+            {/* FRAME BRANCO AMPLO DE OPÇÕES */}
             <View style={styles.menuBody}>
-              <Text style={styles.menuSectionLabel}>NAVEGAÇÃO</Text>
               <View style={styles.menuCard}>
                 {MENU_ITEMS.map((item, idx) => (
                   <React.Fragment key={item.id}>
@@ -186,7 +180,7 @@ export default function DrawerMenu({ visible, onClose }: DrawerMenuProps) {
                         <View style={styles.menuIconBox}>
                           <Feather
                             name={item.icon}
-                            size={17}
+                            size={18}
                             color="#006D37"
                           />
                         </View>
@@ -207,7 +201,7 @@ export default function DrawerMenu({ visible, onClose }: DrawerMenuProps) {
             </View>
           </View>
 
-          {/* BOTÃO SAIR FUNCIONAL */}
+          {/* BOTÃO SAIR DA CONTA EM VERMELHO */}
           <View style={styles.bottomArea}>
             <TouchableOpacity
               activeOpacity={0.82}
@@ -216,8 +210,8 @@ export default function DrawerMenu({ visible, onClose }: DrawerMenuProps) {
               accessibilityRole="button"
               accessibilityLabel="Sair da conta"
             >
-              <Feather name="log-out" size={16} color="#FFFFFF" />
-              <Text style={styles.logoutText}>Sair da conta</Text>
+              <Feather name="log-out" size={17} color="#DC2626" />
+              <Text style={styles.logoutText}>Sair da Conta</Text>
             </TouchableOpacity>
           </View>
 

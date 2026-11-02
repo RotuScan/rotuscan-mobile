@@ -1,11 +1,29 @@
 import mongoose from 'mongoose';
+import { CATEGORIAS } from './User.js';
 
 const allergenDictionarySchema = new mongoose.Schema(
   {
-    categoria: { type: String, required: true, unique: true, trim: true },
-    sinonimos: { type: [String], default: [] },
+    categoria: {
+      type: String,
+      enum: CATEGORIAS,
+      required: true,
+      unique: true,
+      trim: true,
+    },
+    sinonimos: {
+      type: [{ type: String, trim: true, maxlength: 120 }],
+      default: [],
+    },
+    excecoes: {
+      type: [{ type: String, trim: true, maxlength: 120 }],
+      default: [],
+    },
   },
-  { timestamps: true, collection: 'allergendictionaries' }
+  {
+    timestamps: true,
+    strict: true,
+    collection: 'allergendictionaries',
+  }
 );
 
 const AllergenDictionary =
@@ -13,4 +31,3 @@ const AllergenDictionary =
   mongoose.model('AllergenDictionary', allergenDictionarySchema);
 
 export default AllergenDictionary;
-

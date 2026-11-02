@@ -356,6 +356,9 @@ export async function analisarTextoRotulo({
       alergicosDetectados.push({
         categoria,
         tipo: 'CONTEM',
+        termo: termosContem[0] || '',
+        trecho: termosContem.join(', '),
+        aproximado: false,
         termos: termosContem,
       });
       continue;
@@ -368,6 +371,9 @@ export async function analisarTextoRotulo({
         alergicosDetectados.push({
           categoria,
           tipo: 'TRACOS',
+          termo: termosTracos[0] || '',
+          trecho: termosTracos.join(', '),
+          aproximado: false,
           termos: termosTracos,
         });
       }
