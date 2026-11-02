@@ -28,7 +28,11 @@ import AppHeader from "../components/Header/AppHeader";
 import TabBar from "@/components/TabBar/indexTab";
 import ConfirmModal from "../components/ConfirmModal";
 import api, { extrairMensagemErro } from "../services/api";
-import { useAuth, NiveisSensibilidade } from "../context/AuthContext";
+import {
+  useAuth,
+  NiveisSensibilidade,
+  NutricionistaVinculado,
+} from "../context/AuthContext";
 
 const COLORS = {
   background: "#F5F7FA",
@@ -85,6 +89,12 @@ export default function PerfilScreen() {
   const [erroInline, setErroInline] = useState<string | null>(null);
   const [sucessoInline, setSucessoInline] = useState<string | null>(null);
   const [modalSairVisivel, setModalSairVisivel] = useState(false);
+  const [nutricionista, setNutricionista] =
+    useState<NutricionistaVinculado | null>(
+      usuarioAtual?.nutricionista || null
+    );
+  const [modalDesvincularVisivel, setModalDesvincularVisivel] = useState(false);
+  const [desvinculando, setDesvinculando] = useState(false);
 
   const carregarDadosPerfil = useCallback(
     async (isRefresh = false) => {
@@ -117,10 +127,13 @@ export default function PerfilScreen() {
         };
 
         const avatarResolucao = u.avatar || avatarCache || null;
+        const nutriServidor: NutricionistaVinculado | null =
+          res.data?.nutricionista || u.nutricionista || null;
 
         setNome(u.nome || "Usuário");
         setEmail(u.email || "");
         setAvatar(avatarResolucao);
+        setNutricionista(nutriServidor);
 
         setDiasConsecutivos(Number(st.diasConsecutivos || 0));
         setEscaneamentosSegurosMes(Number(st.escaneamentosSegurosMes || 0));
@@ -134,6 +147,9 @@ export default function PerfilScreen() {
           avatar: avatarResolucao,
           restricoes: restServidor,
           niveisSensibilidade: niveisServidor,
+          nutricionista: nutriServidor,
+          restricoesAtualizadasEm: u.restricoesAtualizadasEm || null,
+          restricoesAtualizadasPor: u.restricoesAtualizadasPor || null,
         });
       } catch (error: any) {
         setErroInline(extrairMensagemErro(error));
@@ -207,6 +223,31 @@ export default function PerfilScreen() {
 
   function abrirRota(path: string) {
     router.push(path as never);
+  }
+
+  async function confirmarDesvinculo() {
+    if (desvinculando) return;
+    setDesvinculando(true);
+    setErroInline(null);
+    setSucessoInline(null);
+    try {
+      await api.delete("/users/vinculo");
+      setNutricionista(null);
+      if (usuarioAtual) {
+        await salvarSessaoUsuario(null, {
+          ...usuarioAtual,
+          nutricionista: null,
+        });
+      }
+      setModalDesvincularVisivel(false);
+      setSucessoInline("Nutricionista desvinculado com sucesso.");
+      setTimeout(() => setSucessoInline(null), 3500);
+    } catch (err: any) {
+      setModalDesvincularVisivel(false);
+      setErroInline(extrairMensagemErro(err));
+    } finally {
+      setDesvinculando(false);
+    }
   }
 
   async function confirmarSaida() {
@@ -348,6 +389,62 @@ export default function PerfilScreen() {
           )}
         </View>
 
+        {/* Meu Nutricionista */}
+        <View style={styles.optionsSection}>
+          <Text style={styles.sectionTitle}>MEU NUTRICIONISTA</Text>
+
+          <View style={styles.nutriCard}>
+            {nutricionista ? (
+              <View style={styles.nutriRow}>
+                <View style={styles.nutriIconBox}>
+                  <Ionicons name="medical" size={18} color={COLORS.green} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.nutriName}>
+                    {nutricionista.tratamento
+                      ? `${nutricionista.tratamento} `
+                      : ""}
+                    {nutricionista.nome}
+                  </Text>
+                  <Text style={styles.nutriSub}>
+                    {nutricionista.crn
+                      ? `CRN ${nutricionista.crn} • Vinculado`
+                      : "Acompanhamento ativo"}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.unlinkBtn}
+                  activeOpacity={0.8}
+                  onPress={() => setModalDesvincularVisivel(true)}
+                >
+                  <Text style={styles.unlinkBtnText}>Desvincular</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={styles.nutriRow}>
+                <View style={styles.nutriIconBox}>
+                  <Feather name="user-plus" size={17} color={COLORS.green} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.nutriName}>Sem vínculo ativo</Text>
+                  <Text style={styles.nutriSub}>
+                    Conecte seu perfil ao código do seu nutricionista
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.linkBtn}
+                  activeOpacity={0.85}
+                  onPress={() =>
+                    abrirRota("/vincular-nutricionista?modo=perfil")
+                  }
+                >
+                  <Text style={styles.linkBtnText}>Vincular nutricionista</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        </View>
+
         {/* Opções da Conta */}
         <View style={styles.optionsSection}>
           <Text style={styles.sectionTitle}>OPÇÕES DA CONTA</Text>
@@ -358,15 +455,6 @@ export default function PerfilScreen() {
               title="Dados pessoais e metas"
               subtitle="Editar nome, e-mail e senha"
               onPress={() => abrirRota("/dados-pessoais")}
-            />
-
-            <View style={styles.optionDivider} />
-
-            <Option
-              icon="clock"
-              title="Histórico de análises"
-              subtitle={`${totalScans} produtos analisados`}
-              onPress={() => abrirRota("/historico")}
             />
 
             <View style={styles.optionDivider} />
@@ -391,7 +479,7 @@ export default function PerfilScreen() {
 
             <Option
               icon="settings"
-              title="Definições"
+              title="Configurações"
               subtitle="Preferências do aplicativo e conta"
               onPress={() => abrirRota("/configuracoes")}
             />
@@ -424,6 +512,18 @@ export default function PerfilScreen() {
         destructive
         onConfirm={confirmarSaida}
         onCancel={() => setModalSairVisivel(false)}
+      />
+
+      <ConfirmModal
+        visible={modalDesvincularVisivel}
+        title="Desvincular nutricionista?"
+        message="O profissional deixará de ter acesso às suas restrições e ao histórico dos seus escaneamentos."
+        confirmText="Desvincular"
+        cancelText="Cancelar"
+        destructive
+        loading={desvinculando}
+        onConfirm={confirmarDesvinculo}
+        onCancel={() => setModalDesvincularVisivel(false)}
       />
     </SafeAreaView>
   );
@@ -741,5 +841,62 @@ const styles = StyleSheet.create({
   tabBarContainer: {
     width: "100%",
     alignSelf: "center",
+  },
+  nutriCard: {
+    marginTop: 10,
+    backgroundColor: COLORS.white,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
+  nutriRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  nutriIconBox: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: COLORS.greenLight,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  nutriName: {
+    fontFamily: "Geist_700Bold",
+    fontSize: 13.5,
+    color: "#1F2933",
+  },
+  nutriSub: {
+    fontFamily: "Geist_400Regular",
+    fontSize: 11.5,
+    color: "#64748B",
+    marginTop: 2,
+  },
+  linkBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: COLORS.green,
+  },
+  linkBtnText: {
+    fontFamily: "Geist_600SemiBold",
+    fontSize: 11.5,
+    color: COLORS.white,
+  },
+  unlinkBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: COLORS.redLight,
+    borderWidth: 1,
+    borderColor: "#FECACA",
+  },
+  unlinkBtnText: {
+    fontFamily: "Geist_600SemiBold",
+    fontSize: 11.5,
+    color: COLORS.red,
   },
 });

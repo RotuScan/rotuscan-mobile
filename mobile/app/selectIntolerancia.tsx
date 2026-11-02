@@ -162,6 +162,9 @@ export default function IntoleranciasScreen() {
           lactose: lactoseNivel,
           amendoim: amendoimNivel,
         },
+        ...(rascunhoCadastro.codigoNutricionista
+          ? { codigoNutricionista: rascunhoCadastro.codigoNutricionista }
+          : {}),
       });
 
       const { token, usuario } = response.data;

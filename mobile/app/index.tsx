@@ -65,18 +65,33 @@ export default function IndexSplashScreen() {
           try {
             const res = await api.get("/users/perfil");
             const u = res.data?.usuario || res.data;
-            if (u && (u.id || u._id)) {
+            if (u?.role === "NUTRICIONISTA") {
+              await AsyncStorage.multiRemove([
+                "@rotuscan_token",
+                "@usuario_id",
+                "@usuario_nome",
+                "@usuario_email",
+                "@usuario_avatar",
+                "@usuario_restricoes",
+                "@usuario_niveis",
+              ]);
+              destino = "/login";
+            } else if (u && (u.id || u._id)) {
               await salvarSessaoUsuario(token, {
                 id: String(u.id || u._id),
                 nome: u.nome || "Usuário",
                 email: u.email || "",
                 avatar: u.avatar || null,
+                role: u.role || "PACIENTE",
                 restricoes: Array.isArray(u.restricoes) ? u.restricoes : [],
                 niveisSensibilidade: u.niveisSensibilidade || {
                   gluten: 1,
                   lactose: 1,
                   amendoim: 1,
                 },
+                nutricionista: res.data?.nutricionista || u.nutricionista || null,
+                restricoesAtualizadasEm: u.restricoesAtualizadasEm || null,
+                restricoesAtualizadasPor: u.restricoesAtualizadasPor || null,
               });
               destino = "/home";
             }
@@ -122,7 +137,7 @@ export default function IndexSplashScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="#F8FAF9" />
+      <StatusBar barStyle="dark-content" />
 
       <Animated.View style={[styles.centerContent, { opacity: fadeAnim }]}>
         <View style={styles.logoRow}>

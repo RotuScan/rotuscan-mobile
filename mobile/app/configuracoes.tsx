@@ -28,7 +28,7 @@ import { useAuth } from "../context/AuthContext";
 export default function ConfiguracoesScreen() {
   const router = useRouter();
   const { width } = useWindowDimensions();
-  const { encerrarSessao } = useAuth();
+  const { usuarioAtual, salvarSessaoUsuario, encerrarSessao } = useAuth();
 
   const [fontsLoaded] = useFonts({
     Geist_400Regular,
@@ -39,8 +39,33 @@ export default function ConfiguracoesScreen() {
 
   const [modalSairVisivel, setModalSairVisivel] = useState(false);
   const [modalExcluirVisivel, setModalExcluirVisivel] = useState(false);
+  const [modalDesvincularVisivel, setModalDesvincularVisivel] = useState(false);
+  const [desvinculando, setDesvinculando] = useState(false);
   const [excluindo, setExcluindo] = useState(false);
   const [erroInline, setErroInline] = useState<string | null>(null);
+
+  const nutricionista = usuarioAtual?.nutricionista || null;
+
+  const confirmarDesvinculo = async () => {
+    if (desvinculando) return;
+    setDesvinculando(true);
+    setErroInline(null);
+    try {
+      await api.delete("/users/vinculo");
+      if (usuarioAtual) {
+        await salvarSessaoUsuario(null, {
+          ...usuarioAtual,
+          nutricionista: null,
+        });
+      }
+      setModalDesvincularVisivel(false);
+    } catch (err: any) {
+      setModalDesvincularVisivel(false);
+      setErroInline(extrairMensagemErro(err));
+    } finally {
+      setDesvinculando(false);
+    }
+  };
 
   const confirmarSaida = async () => {
     setModalSairVisivel(false);
@@ -102,6 +127,32 @@ export default function ConfiguracoesScreen() {
             <Text style={styles.erroBannerText}>{erroInline}</Text>
           </View>
         ) : null}
+
+        {/* MEU NUTRICIONISTA */}
+        <Text style={styles.sectionTitle}>MEU NUTRICIONISTA</Text>
+        <View style={styles.card}>
+          {nutricionista ? (
+            <ConfigItem
+              icon="user-check"
+              title={`${
+                nutricionista.tratamento ? `${nutricionista.tratamento} ` : ""
+              }${nutricionista.nome}`}
+              subtitle={`${
+                nutricionista.crn ? `CRN ${nutricionista.crn} • ` : ""
+              }Toque para desvincular`}
+              onPress={() => setModalDesvincularVisivel(true)}
+            />
+          ) : (
+            <ConfigItem
+              icon="user-plus"
+              title="Vincular nutricionista"
+              subtitle="Conectar meu perfil usando o código do nutricionista"
+              onPress={() =>
+                router.push("/vincular-nutricionista?modo=perfil" as never)
+              }
+            />
+          )}
+        </View>
 
         {/* CONTA E PERFIL ALIMENTAR */}
         <Text style={styles.sectionTitle}>CONTA E PERFIL ALIMENTAR</Text>
@@ -212,6 +263,18 @@ export default function ConfiguracoesScreen() {
         loading={excluindo}
         onConfirm={confirmarExclusaoConta}
         onCancel={() => setModalExcluirVisivel(false)}
+      />
+
+      <ConfirmModal
+        visible={modalDesvincularVisivel}
+        title="Desvincular nutricionista?"
+        message="O profissional deixará de ter acesso às suas restrições e ao histórico dos seus escaneamentos."
+        confirmText="Desvincular"
+        cancelText="Cancelar"
+        destructive
+        loading={desvinculando}
+        onConfirm={confirmarDesvinculo}
+        onCancel={() => setModalDesvincularVisivel(false)}
       />
     </SafeAreaView>
   );

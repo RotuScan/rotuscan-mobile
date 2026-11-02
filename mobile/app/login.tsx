@@ -107,7 +107,14 @@ export default function LoginScreen() {
         email: emailLimpo,
         senha,
       });
-      const { token, usuario } = response.data;
+      const { token, usuario, role } = response.data;
+      const roleFinal = role || usuario?.role;
+
+      if (roleFinal === "NUTRICIONISTA") {
+        setErroServidor("Esta conta é de nutricionista. Use o painel web.");
+        dispararShake();
+        return;
+      }
 
       await salvarSessaoUsuario(token, usuario);
       router.replace("/home" as never);

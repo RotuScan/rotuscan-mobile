@@ -14,6 +14,14 @@ export type NiveisSensibilidade = {
   amendoim: 0 | 1 | 2;
 };
 
+export type NutricionistaVinculado = {
+  id?: string;
+  nome: string;
+  crn: string | null;
+  tratamento: "Dr." | "Dra." | "Nutri." | string | null;
+  vinculadoEm?: string | null;
+};
+
 export type UsuarioPublico = {
   id: string;
   nome: string;
@@ -22,6 +30,9 @@ export type UsuarioPublico = {
   role?: "PACIENTE" | "NUTRICIONISTA";
   restricoes: string[];
   niveisSensibilidade: NiveisSensibilidade;
+  nutricionista?: NutricionistaVinculado | null;
+  restricoesAtualizadasEm?: string | null;
+  restricoesAtualizadasPor?: "PACIENTE" | "NUTRICIONISTA" | null;
 };
 
 export type RascunhoCadastro = {
@@ -29,6 +40,8 @@ export type RascunhoCadastro = {
   email: string;
   senha: string;
   repetirSenha: string;
+  codigoNutricionista?: string;
+  nutricionistaPreview?: NutricionistaVinculado | null;
 };
 
 type AuthContextType = {
@@ -49,6 +62,8 @@ const RASCUNHO_VAZIO: RascunhoCadastro = {
   email: "",
   senha: "",
   repetirSenha: "",
+  codigoNutricionista: undefined,
+  nutricionistaPreview: null,
 };
 
 const AuthContext = createContext<AuthContextType>({
@@ -167,10 +182,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       await AsyncStorage.multiSet(pares);
 
-      setUsuarioAtual({
+      setUsuarioAtual((prev) => ({
+        ...prev,
         ...usuario,
         avatar: avatarFinal,
-      });
+      }));
     },
     []
   );

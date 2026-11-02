@@ -1,6 +1,7 @@
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import {
   ActivityIndicator,
+  Image,
   StatusBar,
   StyleSheet,
   Text,
@@ -10,22 +11,40 @@ import {
 } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { Ionicons, Feather } from "@expo/vector-icons";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import DrawerMenu from "@/components/Drawer/DrawerMenu";
 import TabBar from "@/components/TabBar/indexTab";
 import { enviarFotoScanner, extrairMensagemErro } from "../services/api";
+import { useAuth } from "../context/AuthContext";
 
 export default function ScannerScreen() {
-  const { width, height } = useWindowDimensions();
+  const { width } = useWindowDimensions();
   const [permission, requestPermission] = useCameraPermissions();
+  const { usuarioAtual } = useAuth();
 
   const [flashAtivo, setFlashAtivo] = useState(false);
   const [menuAberto, setMenuAberto] = useState(false);
   const [cameraRef, setCameraRef] = useState<CameraView | null>(null);
   const [loading, setLoading] = useState(false);
   const [erroInline, setErroInline] = useState<string | null>(null);
+  const [avatarUsuario, setAvatarUsuario] = useState<string | null>(
+    usuarioAtual?.avatar || null
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (usuarioAtual?.avatar) {
+        setAvatarUsuario(usuarioAtual.avatar);
+      } else {
+        AsyncStorage.getItem("@usuario_avatar").then((av) => {
+          setAvatarUsuario(av || null);
+        });
+      }
+    }, [usuarioAtual?.avatar])
+  );
 
   const tamanhoMoldura = Math.min(width * 0.68, 250);
   const tamanhoBotao = Math.min(width * 0.115, 48);
@@ -150,7 +169,14 @@ export default function ScannerScreen() {
               activeOpacity={0.8}
               accessibilityLabel="Ir para o perfil"
             >
-              <Ionicons name="person-circle" size={39} color="#FFFFFF" />
+              {avatarUsuario ? (
+                <Image
+                  source={{ uri: avatarUsuario }}
+                  style={styles.profileAvatarImage}
+                />
+              ) : (
+                <Ionicons name="person-circle" size={38} color="#FFFFFF" />
+              )}
             </TouchableOpacity>
           </View>
 
@@ -226,12 +252,7 @@ export default function ScannerScreen() {
           </View>
 
           {/* INDICADOR DE ANÁLISE / BOTÃO CAPTURAR */}
-          <View
-            style={[
-              styles.bottomContainer,
-              { marginBottom: Math.max(height * 0.03, 16) },
-            ]}
-          >
+          <View style={styles.bottomContainer}>
             <TouchableOpacity
               style={[
                 styles.scanningIndicator,
@@ -352,11 +373,18 @@ const styles = StyleSheet.create({
   profileButton: {
     width: 38,
     height: 38,
-    borderRadius: 22,
+    borderRadius: 19,
     backgroundColor: "rgba(0, 0, 0, 0.35)",
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
+    borderWidth: 1.5,
+    borderColor: "rgba(255, 255, 255, 0.7)",
+  },
+  profileAvatarImage: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
   },
   erroBanner: {
     marginHorizontal: 16,
@@ -446,6 +474,7 @@ const styles = StyleSheet.create({
   bottomContainer: {
     alignItems: "center",
     justifyContent: "center",
+    marginBottom: 110,
   },
   scanningIndicator: {
     minHeight: 46,

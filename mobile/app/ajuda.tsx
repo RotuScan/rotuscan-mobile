@@ -1,5 +1,7 @@
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import {
+  ActivityIndicator,
+  Platform,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -11,7 +13,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Feather, Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import {
   Geist_400Regular,
   Geist_500Medium,
@@ -22,6 +24,25 @@ import { useFonts } from "@expo-google-fonts/geist/useFonts";
 
 import AppHeader from "../components/Header/AppHeader";
 import TabBar from "../components/TabBar/indexTab";
+import api, { extrairMensagemErro } from "../services/api";
+
+type TipoFeedback = "SUGESTAO" | "PROBLEMA" | "ELOGIO" | "OUTRO";
+
+type FeedbackEnviado = {
+  id: string;
+  mensagem: string;
+  tipo: TipoFeedback;
+  plataforma?: string;
+  appVersao?: string;
+  createdAt?: string;
+};
+
+const OPCOES_TIPO: { valor: TipoFeedback; label: string }[] = [
+  { valor: "SUGESTAO", label: "Sugestão" },
+  { valor: "PROBLEMA", label: "Problema" },
+  { valor: "ELOGIO", label: "Elogio" },
+  { valor: "OUTRO", label: "Outro" },
+];
 
 const PERGUNTAS_FREQUENTES = [
   {
@@ -42,7 +63,7 @@ const PERGUNTAS_FREQUENTES = [
   {
     pergunta: "Posso renomear um produto escaneado?",
     resposta:
-      "Sim! Na tela de Resultado Detalhado, basta tocar sobre o nome automático do produto para digitar o nome comercial e a marca/peso.",
+      "Sim! Na tela de Resultado Detalhado, basta tocar sobre o nome automático do produto para digitar o nome comercial, a marca e o peso.",
   },
 ];
 
@@ -57,8 +78,88 @@ export default function AjudaScreen() {
     Geist_700Bold,
   });
 
-  const [mensagemDuvida, setMensagemDuvida] = useState("");
-  const [enviadoFeedback, setEnviadoFeedback] = useState(false);
+  const [mensagemFeedback, setMensagemFeedback] = useState("");
+  const [tipoFeedback, setTipoFeedback] = useState<TipoFeedback>("SUGESTAO");
+  const [enviando, setEnviando] = useState(false);
+  const [toastSucesso, setToastSucesso] = useState<string | null>(null);
+  const [erroEnvio, setErroEnvio] = useState<string | null>(null);
+  const [feedbacksEnviados, setFeedbacksEnviados] = useState<FeedbackEnviado[]>(
+    []
+  );
+  const [carregandoLista, setCarregandoLista] = useState(false);
+
+  const carregarFeedbacks = useCallback(async () => {
+    setCarregandoLista(true);
+    try {
+      const res = await api.get("/feedback");
+      const lista = Array.isArray(res.data?.itens) ? res.data.itens : [];
+      setFeedbacksEnviados(lista);
+    } catch {
+      // ignora silenciosamente caso ainda não tenha itens
+    } finally {
+      setCarregandoLista(false);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      carregarFeedbacks();
+    }, [carregarFeedbacks])
+  );
+
+  const enviarFeedback = async () => {
+    if (enviando) return;
+    const texto = mensagemFeedback.trim();
+
+    if (texto.length < 3) {
+      setErroEnvio("Digite sua mensagem com pelo menos 3 caracteres.");
+      return;
+    }
+    if (texto.length > 1000) {
+      setErroEnvio("A mensagem deve ter no máximo 1000 caracteres.");
+      return;
+    }
+
+    setEnviando(true);
+    setErroEnvio(null);
+    setToastSucesso(null);
+
+    const plataformaAtual =
+      Platform.OS === "ios"
+        ? "ios"
+        : Platform.OS === "android"
+        ? "android"
+        : "web";
+
+    try {
+      const res = await api.post("/feedback", {
+        mensagem: texto,
+        tipo: tipoFeedback,
+        plataforma: plataformaAtual,
+        appVersao: "1.0.0",
+      });
+
+      const novoItem: FeedbackEnviado = res.data?.item || {
+        id: String(res.data?.id || Date.now()),
+        mensagem: texto,
+        tipo: tipoFeedback,
+        plataforma: plataformaAtual,
+        appVersao: "1.0.0",
+        createdAt: new Date().toISOString(),
+      };
+
+      setFeedbacksEnviados((prev) => [novoItem, ...prev]);
+      setMensagemFeedback("");
+      setToastSucesso(
+        res.data?.mensagem || "Feedback enviado com sucesso! Obrigado pela contribuição."
+      );
+      setTimeout(() => setToastSucesso(null), 4000);
+    } catch (err: any) {
+      setErroEnvio(extrairMensagemErro(err));
+    } finally {
+      setEnviando(false);
+    }
+  };
 
   if (!fontsLoaded) return null;
 
@@ -69,10 +170,18 @@ export default function AjudaScreen() {
       <StatusBar barStyle="dark-content" />
       <AppHeader />
 
+      {toastSucesso ? (
+        <View style={styles.toastBanner}>
+          <Ionicons name="checkmark-circle" size={18} color="#FFFFFF" />
+          <Text style={styles.toastText}>{toastSucesso}</Text>
+        </View>
+      ) : null}
+
       <ScrollView
         style={styles.container}
         contentContainerStyle={[styles.scrollContent, { width: cardWidth }]}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
         <View style={styles.headerRow}>
           <TouchableOpacity
@@ -84,49 +193,108 @@ export default function AjudaScreen() {
             <Feather name="arrow-left" size={20} color="#087443" />
           </TouchableOpacity>
           <View style={{ flex: 1 }}>
-            <Text style={styles.pageTitle}>Ajuda e Perguntas Frequentes</Text>
+            <Text style={styles.pageTitle}>Ajuda e Feedback</Text>
             <Text style={styles.pageSubtitle}>
-              Tire suas dúvidas sobre o uso do RotuScan
+              Envie sugestões, relate problemas ou consulte o FAQ
             </Text>
           </View>
         </View>
 
-        {/* Caixinha de texto placeholder provisória solicitada */}
+        {/* Formulário de Feedback conectado a POST /feedback */}
         <View style={styles.boxCard}>
-          <Text style={styles.boxLabel}>Envie sua dúvida ou sugestão</Text>
+          <Text style={styles.boxLabel}>Enviar Feedback</Text>
+
+          <View style={styles.typeChipsRow}>
+            {OPCOES_TIPO.map((op) => {
+              const ativo = tipoFeedback === op.valor;
+              return (
+                <TouchableOpacity
+                  key={op.valor}
+                  style={[styles.typeChip, ativo && styles.typeChipActive]}
+                  activeOpacity={0.8}
+                  onPress={() => setTipoFeedback(op.valor)}
+                >
+                  <Text
+                    style={[
+                      styles.typeChipText,
+                      ativo && styles.typeChipTextActive,
+                    ]}
+                  >
+                    {op.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
           <TextInput
-            value={mensagemDuvida}
+            value={mensagemFeedback}
             onChangeText={(t) => {
-              setMensagemDuvida(t);
-              if (enviadoFeedback) setEnviadoFeedback(false);
+              setMensagemFeedback(t);
+              if (erroEnvio) setErroEnvio(null);
             }}
-            placeholder="Digite sua dúvida sobre leitura de rótulos ou funcionamento do app..."
+            placeholder="Descreva sua sugestão, dúvida ou problema encontrado (3 a 1000 caracteres)..."
             placeholderTextColor="#94A3B8"
             multiline
             numberOfLines={4}
+            maxLength={1000}
             style={styles.textArea}
           />
-          {enviadoFeedback ? (
-            <View style={styles.feedbackRow}>
-              <Ionicons name="checkmark-circle" size={16} color="#15803D" />
-              <Text style={styles.feedbackText}>
-                Sua mensagem foi registrada! Em breve nossa equipe responderá.
-              </Text>
+
+          <View style={styles.counterRow}>
+            <Text
+              style={[
+                styles.counterText,
+                mensagemFeedback.length > 950 && { color: "#D97706" },
+              ]}
+            >
+              {mensagemFeedback.length}/1000 caracteres
+            </Text>
+          </View>
+
+          {erroEnvio ? (
+            <View style={styles.erroRow}>
+              <Ionicons name="alert-circle" size={16} color="#DC2626" />
+              <Text style={styles.erroText}>{erroEnvio}</Text>
             </View>
           ) : null}
+
           <TouchableOpacity
-            style={styles.sendBtn}
+            style={[styles.sendBtn, enviando && { opacity: 0.7 }]}
             activeOpacity={0.85}
-            onPress={() => {
-              if (mensagemDuvida.trim()) {
-                setMensagemDuvida("");
-                setEnviadoFeedback(true);
-              }
-            }}
+            onPress={enviarFeedback}
+            disabled={enviando}
           >
-            <Text style={styles.sendBtnText}>Enviar Mensagem</Text>
+            {enviando ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Text style={styles.sendBtnText}>Enviar Feedback</Text>
+            )}
           </TouchableOpacity>
         </View>
+
+        {/* Lista de feedbacks enviados pelo usuário */}
+        {carregandoLista && feedbacksEnviados.length === 0 ? (
+          <View style={{ paddingVertical: 12, alignItems: "center" }}>
+            <ActivityIndicator size="small" color="#087443" />
+          </View>
+        ) : null}
+
+        {feedbacksEnviados.length > 0 ? (
+          <View style={styles.sentQuestionsSection}>
+            <Text style={styles.sectionHeader}>SEUS FEEDBACKS ENVIADOS</Text>
+            {feedbacksEnviados.map((item) => (
+              <View key={item.id} style={styles.sentCard}>
+                <View style={styles.sentTopRow}>
+                  <View style={styles.statusBadge}>
+                    <Text style={styles.statusBadgeText}>{item.tipo}</Text>
+                  </View>
+                </View>
+                <Text style={styles.sentQuestionText}>{item.mensagem}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
 
         <Text style={styles.sectionHeader}>PERGUNTAS FREQUENTES (FAQ)</Text>
 
@@ -153,6 +321,24 @@ export default function AjudaScreen() {
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: "#F5F7FA" },
   container: { flex: 1, backgroundColor: "#F5F7FA" },
+  toastBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#006D37",
+    marginHorizontal: 18,
+    marginTop: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderRadius: 12,
+    elevation: 4,
+  },
+  toastText: {
+    flex: 1,
+    fontFamily: "Geist_600SemiBold",
+    fontSize: 12.5,
+    color: "#FFFFFF",
+  },
   scrollContent: {
     alignSelf: "center",
     paddingTop: 16,
@@ -192,13 +378,39 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   boxLabel: {
+    fontFamily: "Geist_700Bold",
+    fontSize: 14,
+    color: "#1E293B",
+    marginBottom: 10,
+  },
+  typeChipsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 12,
+  },
+  typeChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    backgroundColor: "#F8FAFC",
+  },
+  typeChipActive: {
+    backgroundColor: "#ECFDF5",
+    borderColor: "#006D37",
+  },
+  typeChipText: {
     fontFamily: "Geist_600SemiBold",
-    fontSize: 13,
-    color: "#334155",
-    marginBottom: 8,
+    fontSize: 12,
+    color: "#475569",
+  },
+  typeChipTextActive: {
+    color: "#006D37",
   },
   textArea: {
-    minHeight: 92,
+    minHeight: 96,
     borderWidth: 1,
     borderColor: "#CBD5E1",
     borderRadius: 12,
@@ -210,17 +422,33 @@ const styles = StyleSheet.create({
     color: "#1E293B",
     textAlignVertical: "top",
   },
-  feedbackRow: {
+  counterRow: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    marginTop: 4,
+  },
+  counterText: {
+    fontFamily: "Geist_500Medium",
+    fontSize: 11,
+    color: "#64748B",
+  },
+  erroRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
     marginTop: 8,
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
   },
-  feedbackText: {
+  erroText: {
     flex: 1,
     fontFamily: "Geist_500Medium",
     fontSize: 12,
-    color: "#15803D",
+    color: "#DC2626",
   },
   sendBtn: {
     backgroundColor: "#087443",
@@ -234,6 +462,40 @@ const styles = StyleSheet.create({
     fontFamily: "Geist_600SemiBold",
     fontSize: 13.5,
     color: "#FFFFFF",
+  },
+  sentQuestionsSection: {
+    marginBottom: 14,
+  },
+  sentCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    marginBottom: 10,
+  },
+  sentTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 6,
+  },
+  statusBadge: {
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: "#ECFDF5",
+  },
+  statusBadgeText: {
+    fontFamily: "Geist_700Bold",
+    fontSize: 10.5,
+    color: "#006D37",
+  },
+  sentQuestionText: {
+    fontFamily: "Geist_500Medium",
+    fontSize: 13,
+    color: "#1E293B",
+    lineHeight: 18,
   },
   sectionHeader: {
     fontFamily: "Geist_700Bold",
@@ -269,4 +531,3 @@ const styles = StyleSheet.create({
     color: "#475569",
   },
 });
-

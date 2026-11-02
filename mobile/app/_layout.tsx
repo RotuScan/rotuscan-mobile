@@ -15,6 +15,10 @@ export default function RootLayout() {
         <Stack.Screen name="login" options={{ headerShown: false }} />
         <Stack.Screen name="cadastro" options={{ headerShown: false }} />
         <Stack.Screen
+          name="vincular-nutricionista"
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
           name="selectIntolerancia"
           options={{ headerShown: false }}
         />

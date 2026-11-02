@@ -33,6 +33,7 @@ type ProdutoCurtido = {
     termos?: string[];
   }[];
   curtido: boolean;
+  imagemUri?: string | null;
   imagemUrl: string | null;
   imagemDemo: string | null;
 };
@@ -273,6 +274,7 @@ export default function ItensCurtidos() {
 
                   <View style={styles.imagemContainer}>
                     <ScanThumb
+                      imagemUri={produto.imagemUri}
                       imagemUrl={produto.imagemUrl}
                       imagemDemo={produto.imagemDemo}
                       categoriaPrincipal={catPrincipal}

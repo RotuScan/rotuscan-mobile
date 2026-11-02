@@ -11,7 +11,9 @@
     "cleanup": "node scripts/cleanupDb.js",
     "seed:demo": "node scripts/seed-demo.js",
     "seed:demo:clear": "node scripts/seed-demo.js --clear",
-    "smoke": "node scripts/smoke-test.js"
+    "smoke": "node scripts/smoke-test.js",
+    "verify-db": "node scripts/verify-db.js",
+    "migrate:marca-peso": "node scripts/migrate-marca-peso.js"
   },
   "keywords": [],
   "author": "",
@@ -21,6 +23,7 @@
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.3.0",
+    "express-rate-limit": "^8.7.2",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.11.4",
     "multer": "^2.5.0",

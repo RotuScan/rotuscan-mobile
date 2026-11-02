@@ -35,6 +35,7 @@ type ItemHistorico = {
     termos?: string[];
   }[];
   curtido: boolean;
+  imagemUri?: string | null;
   imagemUrl: string | null;
   imagemDemo: string | null;
   createdAt: string;
@@ -308,6 +309,7 @@ export default function Historico() {
                         onPress={() => abrirDetalhe(item.id)}
                       >
                         <ScanThumb
+                          imagemUri={item.imagemUri}
                           imagemUrl={item.imagemUrl}
                           imagemDemo={item.imagemDemo}
                           categoriaPrincipal={catPrincipal}
