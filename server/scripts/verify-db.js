@@ -2,7 +2,7 @@ import 'dotenv/config';
 import mongoose from 'mongoose';
 import User, { CATEGORIAS, NIVEIS, TRATAMENTOS_VALIDOS } from '../models/User.js';
 import ScanLog from '../models/ScanLog.js';
-import Feedback, { TIPOS_FEEDBACK, PLATAFORMAS_FEEDBACK } from '../models/Feedback.js';
+import Feedback from '../models/Feedback.js';
 
 const MONGO_URI = process.env.MONGO_URI || process.env.MONGODB_URI;
 if (!MONGO_URI) {
@@ -25,20 +25,17 @@ async function verificarBanco() {
 
   const mapaUsers = new Map(users.map((u) => [String(u._id), u]));
 
-  // 1. ScanLogs órfãos (userId inexistente em users)
-  const scanlogsOrfaos = scanlogs.filter(
+    const scanlogsOrfaos = scanlogs.filter(
     (s) => !s.userId || !mapaUsers.has(String(s.userId))
   );
 
-  // 2. Pacientes com nutricionistaId que não existe ou não tem role NUTRICIONISTA
-  const vinculosInvalidos = users.filter((u) => {
+    const vinculosInvalidos = users.filter((u) => {
     if (!u.nutricionistaId) return false;
     const nutri = mapaUsers.get(String(u.nutricionistaId));
     return !nutri || nutri.role !== 'NUTRICIONISTA';
   });
 
-  // 3. codigoVinculo ausente ou duplicado em nutricionistas
-  const nutricionistas = users.filter((u) => u.role === 'NUTRICIONISTA');
+    const nutricionistas = users.filter((u) => u.role === 'NUTRICIONISTA');
   const nutrisSemCodigo = nutricionistas.filter(
     (n) => !n.codigoVinculo || String(n.codigoVinculo).trim().length !== 8
   );
@@ -54,8 +51,7 @@ async function verificarBanco() {
     ([, qtd]) => qtd > 1
   );
 
-  // 4. Enums inválidos em users, scanlogs e feedbacks
-  let enumsInvalidosUsers = 0;
+    let enumsInvalidosUsers = 0;
   for (const u of users) {
     if (u.role && !['PACIENTE', 'NUTRICIONISTA'].includes(u.role)) {
       enumsInvalidosUsers++;
@@ -97,18 +93,8 @@ async function verificarBanco() {
     }
   }
 
-  let enumsInvalidosFeedbacks = 0;
-  for (const f of feedbacks) {
-    if (
-      !TIPOS_FEEDBACK.includes(f.tipo) ||
-      (f.plataforma && !PLATAFORMAS_FEEDBACK.includes(f.plataforma))
-    ) {
-      enumsInvalidosFeedbacks++;
-    }
-  }
-
-  // 5. Campos obrigatórios faltando
-  const usersCamposFaltando = users.filter(
+    
+    const usersCamposFaltando = users.filter(
     (u) => !u.nome || !u.email || !u.senha
   );
   const scansCamposFaltando = scanlogs.filter(
@@ -144,12 +130,11 @@ async function verificarBanco() {
       Status: codigosDuplicados.length === 0 ? 'OK' : 'ATENÇÃO',
     },
     {
-      Verificacao: '4. Enums inválidos (users / scanlogs / feedbacks)',
-      TotalAnalisado: users.length + scanlogs.length + feedbacks.length,
-      Inconsistencias:
-        enumsInvalidosUsers + enumsInvalidosScans + enumsInvalidosFeedbacks,
+      Verificacao: '4. Enums inválidos (users / scanlogs)',
+      TotalAnalisado: users.length + scanlogs.length,
+      Inconsistencias: enumsInvalidosUsers + enumsInvalidosScans,
       Status:
-        enumsInvalidosUsers + enumsInvalidosScans + enumsInvalidosFeedbacks === 0
+        enumsInvalidosUsers + enumsInvalidosScans === 0
           ? 'OK'
           : 'ATENÇÃO',
     },

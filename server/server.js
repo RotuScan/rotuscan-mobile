@@ -20,20 +20,20 @@ import User, {
 import AllergenDictionary from './models/AllergenDictionary.js';
 import ScanLog, { montarMarcaPeso } from './models/ScanLog.js';
 import HelpQuestion from './models/HelpQuestion.js';
-import Feedback, { TIPOS_FEEDBACK, PLATAFORMAS_FEEDBACK } from './models/Feedback.js';
+import Feedback from './models/Feedback.js';
 import { DICIONARIO_PADRAO } from './seeds/dicionarioPadrao.js';
-import { normalizar, escaparRegex, emailValido } from './utils/texto.js';
+import {
+  normalizar,
+  regexInsensivelAcentos,
+  emailValido,
+} from './utils/texto.js';
 import { autenticarJWT, exigirNutricionista, JWT_SECRET } from './middleware/auth.js';
 import { extrairTextoDaImagem, analisarTextoRotulo } from './services/ocrAnalyzer.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-/**
- * Regra de visibilidade do histórico para o nutricionista:
- * Quando true, o nutricionista vê apenas os escaneamentos realizados pelo paciente
- * a partir do momento do vínculo (createdAt >= paciente.vinculadoEm).
- */
+
 export const FILTRAR_HISTORICO_DESDE_VINCULO = true;
 
 const ALFABETO_CODIGO_VINCULO = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -53,9 +53,6 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// ============================================================================
-// PADRONIZAÇÃO DE ERROS
-// ============================================================================
 
 function responderErro(res, status, mensagem, campos = undefined, extras = {}) {
   const payload = {
@@ -69,13 +66,9 @@ function responderErro(res, status, mensagem, campos = undefined, extras = {}) {
   return res.status(status).json(payload);
 }
 
-// ============================================================================
-// RATE LIMITERS (Login, Cadastro e Verificação de Código de Vínculo)
-// ============================================================================
 
 const limiterVinculo = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
-  max: Number(process.env.VINCULO_RATE_LIMIT_MAX || 10),
+  windowMs: 15 * 60 * 1000,   max: Number(process.env.VINCULO_RATE_LIMIT_MAX || 10),
   standardHeaders: true,
   legacyHeaders: false,
   handler: (_req, res) =>
@@ -87,8 +80,7 @@ const limiterVinculo = rateLimit({
 });
 
 const limiterAuth = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
-  max: Number(process.env.AUTH_RATE_LIMIT_MAX || 40),
+  windowMs: 15 * 60 * 1000,   max: Number(process.env.AUTH_RATE_LIMIT_MAX || 40),
   standardHeaders: true,
   legacyHeaders: false,
   handler: (_req, res) =>
@@ -99,15 +91,11 @@ const limiterAuth = rateLimit({
     ),
 });
 
-// ============================================================================
-// CONFIGURAÇÃO DO MULTER
-// ============================================================================
 
 const upload = multer({
   dest: TMP_UPLOADS_DIR,
   limits: {
-    fileSize: 12 * 1024 * 1024, // 12MB
-  },
+    fileSize: 12 * 1024 * 1024,   },
   fileFilter: (_req, file, cb) => {
     const mime = (file.mimetype || '').toLowerCase();
     const ext = path.extname(file.originalname || '').toLowerCase();
@@ -137,9 +125,6 @@ const upload = multer({
   },
 });
 
-// ============================================================================
-// FUNÇÕES AUXILIARES
-// ============================================================================
 
 export function normalizarCodigoVinculo(raw) {
   if (!raw || typeof raw !== 'string') return '';
@@ -164,9 +149,15 @@ export async function gerarCodigoVinculoUnico() {
 function formatarItemHistorico(doc, incluirDetalhes = false) {
   const obj = typeof doc.toObject === 'function' ? doc.toObject() : doc;
   const idStr = String(obj._id);
-  const marca = typeof obj.marca === 'string' ? obj.marca : '';
-  const peso = typeof obj.peso === 'string' ? obj.peso : '';
-  const marcaPesoMontado = montarMarcaPeso(marca, peso, obj.marcaPeso || '');
+  const marca =
+    typeof obj.marca === 'string' && obj.marca.trim()
+      ? obj.marca.trim()
+      : null;
+  const peso =
+    typeof obj.peso === 'string' && obj.peso.trim()
+      ? obj.peso.trim()
+      : null;
+  const marcaPesoMontado = montarMarcaPeso(marca, peso);
 
   const base = {
     id: idStr,
@@ -176,7 +167,7 @@ function formatarItemHistorico(doc, incluirDetalhes = false) {
     nomeAutomatico: Boolean(obj.nomeAutomatico),
     marca,
     peso,
-    marcaPeso: marcaPesoMontado,
+    marcaPeso: marcaPesoMontado || null,
     intoleranciaDetectada: Array.isArray(obj.intoleranciaDetectada)
       ? obj.intoleranciaDetectada
       : [],
@@ -189,11 +180,7 @@ function formatarItemHistorico(doc, incluirDetalhes = false) {
       : [],
     curtido: Boolean(obj.curtido),
     imagemUri: obj.imagemUri || null,
-    imagemUrl: obj.imagemArquivo
-      ? `/users/historico/${idStr}/imagem`
-      : obj.imagemUri
-      ? `/users/historico/${idStr}/imagem`
-      : null,
+    imagemUrl: `/users/historico/${idStr}/imagem`,
     imagemDemo: obj.imagemDemo || null,
     seed: Boolean(obj.seed),
     createdAt: obj.createdAt,
@@ -1430,15 +1417,13 @@ app.get(
         query.curtido = true;
       }
 
-      const buscaNorm = normalizar(String(busca || ''));
+      const buscaTexto = String(busca || '');
+      const buscaNorm = normalizar(buscaTexto);
       if (buscaNorm) {
-        const rx = new RegExp(escaparRegex(buscaNorm), 'i');
+        const rx = new RegExp(regexInsensivelAcentos(buscaTexto), 'i');
         query.$or = [
-          { nomeBusca: rx },
           { nomeProduto: rx },
           { marca: rx },
-          { peso: rx },
-          { marcaPeso: rx },
         ];
       }
 
@@ -1503,7 +1488,7 @@ app.get(
         _id: logId,
         userId: paciente._id,
       })
-        .select('userId imagemArquivo imagemUri createdAt')
+        .select('userId imagemArquivo imagemUri createdAt +imagemThumb')
         .lean();
 
       if (!log) {
@@ -1520,6 +1505,13 @@ app.get(
           403,
           'Acesso negado: este escaneamento é anterior ao vínculo com o paciente.'
         );
+      }
+
+      if (log.imagemThumb?.startsWith('data:image/jpeg;base64,')) {
+        const base64 = log.imagemThumb.slice('data:image/jpeg;base64,'.length);
+        res.setHeader('Cache-Control', 'private, max-age=86400');
+        res.setHeader('Content-Type', 'image/jpeg');
+        return res.send(Buffer.from(base64, 'base64'));
       }
 
       if (log.imagemArquivo) {
@@ -1643,7 +1635,15 @@ app.get('/users/historico', autenticarJWT, async (req, res) => {
       page = '1',
     } = req.query;
 
-    const query = { userId: req.userId };
+    const userIdObj = mongoose.Types.ObjectId.isValid(req.userId)
+      ? new mongoose.Types.ObjectId(String(req.userId))
+      : req.userId;
+
+    const filtroUserId = mongoose.Types.ObjectId.isValid(req.userId)
+      ? { $in: [userIdObj, String(req.userId)] }
+      : req.userId;
+
+    const query = { userId: filtroUserId };
 
     const filtroNorm = String(filtro).toLowerCase();
     if (filtroNorm === 'risco' || filtroNorm === 'perigoso') {
@@ -1656,15 +1656,13 @@ app.get('/users/historico', autenticarJWT, async (req, res) => {
       query.curtido = true;
     }
 
-    const buscaNorm = normalizar(String(busca || ''));
+    const buscaTexto = String(busca || '');
+    const buscaNorm = normalizar(buscaTexto);
     if (buscaNorm) {
-      const rx = new RegExp(escaparRegex(buscaNorm), 'i');
+      const rx = new RegExp(regexInsensivelAcentos(buscaTexto), 'i');
       query.$or = [
-        { nomeBusca: rx },
         { nomeProduto: rx },
         { marca: rx },
-        { peso: rx },
-        { marcaPeso: rx },
       ];
     }
 
@@ -1678,7 +1676,7 @@ app.get('/users/historico', autenticarJWT, async (req, res) => {
     const sortSpec =
       String(ordem).toLowerCase() === 'nome' ||
       String(ordem).toLowerCase() === 'az'
-        ? { nomeBusca: 1, createdAt: -1 }
+        ? { nomeProduto: 1, createdAt: -1 }
         : { createdAt: -1 };
 
     const [docs, total, totalTodos, totalRisco, totalSeguro] =
@@ -1690,9 +1688,9 @@ app.get('/users/historico', autenticarJWT, async (req, res) => {
           .limit(limiteNum)
           .lean(),
         ScanLog.countDocuments(query),
-        ScanLog.countDocuments({ userId: req.userId }),
-        ScanLog.countDocuments({ userId: req.userId, veredito: 'PERIGOSO' }),
-        ScanLog.countDocuments({ userId: req.userId, veredito: 'SEGURO' }),
+        ScanLog.countDocuments({ userId: filtroUserId }),
+        ScanLog.countDocuments({ userId: filtroUserId, veredito: 'PERIGOSO' }),
+        ScanLog.countDocuments({ userId: filtroUserId, veredito: 'SEGURO' }),
       ]);
 
     const itens = docs.map((d) => formatarItemHistorico(d, false));
@@ -1754,7 +1752,7 @@ app.get('/users/historico/:id/imagem', autenticarJWT, async (req, res) => {
     }
 
     const log = await ScanLog.findById(id)
-      .select('userId imagemArquivo imagemUri')
+      .select('userId imagemArquivo imagemUri +imagemThumb')
       .lean();
     if (!log) {
       return responderErro(res, 404, 'Registro não encontrado.');
@@ -1762,6 +1760,13 @@ app.get('/users/historico/:id/imagem', autenticarJWT, async (req, res) => {
 
     if (String(log.userId) !== String(req.userId)) {
       return responderErro(res, 403, 'Acesso negado a esta imagem.');
+    }
+
+    if (log.imagemThumb?.startsWith('data:image/jpeg;base64,')) {
+      const base64 = log.imagemThumb.slice('data:image/jpeg;base64,'.length);
+      res.setHeader('Cache-Control', 'private, max-age=86400');
+      res.setHeader('Content-Type', 'image/jpeg');
+      return res.send(Buffer.from(base64, 'base64'));
     }
 
     if (log.imagemArquivo) {
@@ -1963,12 +1968,7 @@ app.patch('/users/historico/:id/curtir', autenticarJWT, async (req, res) => {
 
 app.post('/feedback', autenticarJWT, async (req, res) => {
   try {
-    const {
-      mensagem,
-      tipo = 'OUTRO',
-      plataforma = 'web',
-      appVersao = '1.0.0',
-    } = req.body || {};
+    const { mensagem } = req.body || {};
 
     const msgLimpa = typeof mensagem === 'string' ? mensagem.trim() : '';
     if (!msgLimpa || msgLimpa.length < 3) {
@@ -1988,19 +1988,6 @@ app.post('/feedback', autenticarJWT, async (req, res) => {
       );
     }
 
-    const tipoNorm = String(tipo || 'OUTRO').toUpperCase();
-    if (!TIPOS_FEEDBACK.includes(tipoNorm)) {
-      return responderErro(
-        res,
-        400,
-        `Tipo de feedback inválido. Valores aceitos: ${TIPOS_FEEDBACK.join(', ')}`,
-        { tipo: 'Tipo de feedback inválido.' }
-      );
-    }
-
-    const platNorm = String(plataforma || 'web').toLowerCase();
-    const platFinal = PLATAFORMAS_FEEDBACK.includes(platNorm) ? platNorm : 'web';
-
     // Limite de 5 feedbacks por hora por usuário
     const umaHoraAtras = new Date(Date.now() - 60 * 60 * 1000);
     const enviadosUltimaHora = await Feedback.countDocuments({
@@ -2019,9 +2006,6 @@ app.post('/feedback', autenticarJWT, async (req, res) => {
     const novoFeedback = await Feedback.create({
       userId: req.userId,
       mensagem: msgLimpa,
-      tipo: tipoNorm,
-      plataforma: platFinal,
-      appVersao: String(appVersao || '1.0.0').slice(0, 30),
     });
 
     return res.status(201).json({
@@ -2031,9 +2015,6 @@ app.post('/feedback', autenticarJWT, async (req, res) => {
         id: String(novoFeedback._id),
         userId: String(novoFeedback.userId),
         mensagem: novoFeedback.mensagem,
-        tipo: novoFeedback.tipo,
-        plataforma: novoFeedback.plataforma,
-        appVersao: novoFeedback.appVersao,
         createdAt: novoFeedback.createdAt,
       },
     });
@@ -2054,9 +2035,6 @@ app.get('/feedback', autenticarJWT, async (req, res) => {
       itens: lista.map((f) => ({
         id: String(f._id),
         mensagem: f.mensagem,
-        tipo: f.tipo,
-        plataforma: f.plataforma,
-        appVersao: f.appVersao,
         createdAt: f.createdAt,
       })),
     });
@@ -2152,8 +2130,23 @@ app.post('/users/ajuda', autenticarJWT, async (req, res) => {
 // ROTA DO SCANNER OCR (JWT)
 // ============================================================================
 
+function logErroUploadScanner(req, rota, err) {
+  const imagemBytes = Number(req.file?.size) || 'indisponível';
+  console.error(
+    `[SCAN] erro rota=${rota} userId=${req.userId || 'desconhecido'} veredito=ERRO imagemBytes=${imagemBytes}: ${err.message}`
+  );
+}
+
 async function handlerScanner(req, res) {
+  const rota = req.route?.path || req.path;
+  const userIdLog = String(req.userId || 'desconhecido');
+  const imagemBytes = Number(req.file?.size) || 0;
+  let vereditoLog = 'PENDENTE';
+
   if (!req.file) {
+    console.warn(
+      `[SCAN] rota=${rota} userId=${userIdLog} veredito=ERRO imagemBytes=0 erro=imagem ausente`
+    );
     return responderErro(
       res,
       400,
@@ -2166,6 +2159,9 @@ async function handlerScanner(req, res) {
   try {
     const user = await User.findById(req.userId);
     if (!user) {
+      console.error(
+        `[SCAN] erro rota=${rota} userId=${userIdLog} veredito=ERRO imagemBytes=${imagemBytes}: usuário não encontrado`
+      );
       return responderErro(res, 404, 'Usuário não encontrado.');
     }
 
@@ -2177,48 +2173,9 @@ async function handlerScanner(req, res) {
       niveisSensibilidade: user.niveisSensibilidade,
     });
 
-    const nomesAlergenosLog =
-      analise.alergicosDetectados.length > 0
-        ? analise.alergicosDetectados
-            .map(
-              (a) =>
-                `${a.categoria.toUpperCase()} (${a.tipo}): [${(a.termos || []).join(', ')}]`
-            )
-            .join(' | ')
-        : 'Nenhum alérgeno restrito detectado';
-
-    console.log(
-      '\n======================================================================'
-    );
-    console.log(' [ROTUSCAN OCR] NOVA ANÁLISE DE RÓTULO RECEBIDA');
-    console.log(
-      '======================================================================'
-    );
-    console.log(` • Usuário           : ${user.nome} (ID: ${user._id})`);
-    console.log(
-      ` • Restrições Ativas : ${
-        user.restricoes?.length ? user.restricoes.join(', ') : 'Nenhuma'
-      }`
-    );
-    console.log(
-      ` • Sensibilidade     : Glúten=${user.niveisSensibilidade?.gluten ?? 1} | Lactose=${
-        user.niveisSensibilidade?.lactose ?? 1
-      } | Amendoim=${user.niveisSensibilidade?.amendoim ?? 1}`
-    );
-    console.log(
-      '----------------------------------------------------------------------'
-    );
-    console.log(' • TEXTO BRUTO LIDO PELO TESSERACT OCR:');
-    console.log(
-      analise.textoBruto ? analise.textoBruto : '(Vazio / ilegível)'
-    );
-    console.log(
-      '----------------------------------------------------------------------'
-    );
-    console.log(` • Alérgenos/Sinônimos Detectados : ${nomesAlergenosLog}`);
-    console.log(` • VEREDITO FINAL                 : ${analise.veredito}`);
-    console.log(
-      '======================================================================\n'
+    vereditoLog = analise.veredito || 'ERRO';
+    console.info(
+      `[SCAN] rota=${rota} userId=${user._id} veredito=${vereditoLog} imagemBytes=${imagemBytes}`
     );
 
     if (analise.veredito === 'INCONCLUSIVO') {
@@ -2232,31 +2189,18 @@ async function handlerScanner(req, res) {
     }
 
     const logId = new mongoose.Types.ObjectId();
-    const userIdStr = String(user._id);
-    let imagemArquivoRelativo = null;
-    let imagemUriBase64 = null;
+    let imagemThumb = null;
 
     try {
-      const dirUsuario = path.join(SCANS_UPLOADS_DIR, userIdStr);
-      if (!fs.existsSync(dirUsuario)) {
-        await fs.promises.mkdir(dirUsuario, { recursive: true });
-      }
-      const nomeArquivo = `${logId}.jpg`;
-      const caminhoFinalThumb = path.join(dirUsuario, nomeArquivo);
-
       const thumbBuffer = await sharp(caminhoTemp)
         .rotate()
-        .resize({ width: 420, withoutEnlargement: true })
-        .jpeg({ quality: 65 })
+        .resize({ width: 320, withoutEnlargement: true })
+        .jpeg({ quality: 60 })
         .toBuffer();
-
-      await fs.promises.writeFile(caminhoFinalThumb, thumbBuffer);
-      imagemArquivoRelativo = path.posix.join('scans', userIdStr, nomeArquivo);
-      imagemUriBase64 = `data:image/jpeg;base64,${thumbBuffer.toString('base64')}`;
+      imagemThumb = `data:image/jpeg;base64,${thumbBuffer.toString('base64')}`;
     } catch (thumbErr) {
       console.warn(
-        'Aviso: falha ao salvar miniatura do scan:',
-        thumbErr.message
+        `[SCAN] rota=${rota} userId=${user._id} falha ao gerar imagemThumb: ${thumbErr.message}`
       );
     }
 
@@ -2271,12 +2215,15 @@ async function handlerScanner(req, res) {
       2: 'Grave',
     };
 
-    const intoleranciasDetectadasLista = analise.alergicosDetectados.map(
+    const alergicosDetectados = Array.isArray(analise.alergicosDetectados)
+      ? analise.alergicosDetectados
+      : [];
+    const intoleranciasDetectadasLista = alergicosDetectados.map(
       (a) => MAPA_ROTULO_CAT[a.categoria] || a.categoria
     );
 
     const catReferenciaNivel =
-      analise.alergicosDetectados[0]?.categoria ||
+      alergicosDetectados[0]?.categoria ||
       user.restricoes?.[0] ||
       'gluten';
     const valorNivelNumerico =
@@ -2284,32 +2231,50 @@ async function handlerScanner(req, res) {
     const nivelSensibilidadeTexto =
       MAPA_NIVEL_LABEL[valorNivelNumerico] || 'Moderado';
 
-    const novoLog = await ScanLog.create({
-      _id: logId,
-      userId: user._id,
-      nomeProduto: String(analise.nomeProduto || 'Produto analisado').slice(
-        0,
-        80
-      ),
-      nomeAutomatico: true,
-      nomeBusca: analise.nomeBusca,
-      marca: '',
-      peso: '',
-      marcaPeso: '',
-      imagemUri: imagemUriBase64,
-      imagemArquivo: imagemArquivoRelativo,
-      imagemDemo: null,
-      intoleranciaDetectada: intoleranciasDetectadasLista,
-      nivelSensibilidade: nivelSensibilidadeTexto,
-      confiancaOcr: analise.confiancaOcr ?? null,
-      motorOcr: 'tesseract',
-      textoBruto: analise.textoBruto,
-      veredito: analise.veredito,
-      alergicosDetectados: analise.alergicosDetectados,
-      ingredientesDetalhados: analise.ingredientesDetalhados,
-      curtido: false,
-      seed: false,
-    });
+    let novoLog;
+    try {
+      novoLog = await ScanLog.create({
+        _id: logId,
+        userId: user._id,
+        escaneadoPorNome: user.nome || 'Usuário',
+        nomeProduto: String(analise.nomeProduto || 'Produto analisado').slice(
+          0,
+          80
+        ),
+        nomeAutomatico: true,
+        nomeBusca: analise.nomeBusca || '',
+        marca: null,
+        peso: null,
+        marcaPeso: '',
+        imagemThumb,
+        imagemUri: null,
+        imagemArquivo: null,
+        imagemDemo: null,
+        intoleranciaDetectada: intoleranciasDetectadasLista,
+        nivelSensibilidade: nivelSensibilidadeTexto,
+        confiancaOcr: analise.confiancaOcr ?? null,
+        motorOcr: 'tesseract',
+        textoBruto: analise.textoBruto,
+        veredito: analise.veredito,
+        alergicosDetectados,
+        ingredientesDetalhados: analise.ingredientesDetalhados || [],
+        curtido: false,
+        seed: false,
+      });
+    } catch (saveErr) {
+      console.error(
+        `[SCAN] erro ao gravar rota=${rota} userId=${user._id} veredito=${vereditoLog} imagemBytes=${imagemBytes}: ${saveErr.name}: ${saveErr.message}`
+      );
+      return responderErro(
+        res,
+        500,
+        'Não foi possível gravar o escaneamento no histórico.'
+      );
+    }
+
+    console.info(
+      `[SCAN] ScanLog ${novoLog._id} gravado em ${ScanLog.collection.name}`
+    );
 
     const itemFormatado = formatarItemHistorico(novoLog, true);
     return res.status(200).json({
@@ -2324,13 +2289,17 @@ async function handlerScanner(req, res) {
     });
   } catch (err) {
     if (err?.code === 'OCR_UNAVAILABLE') {
-      console.error('Erro de OCR no servidor:', err.detalhe);
+      console.error(
+        `[SCAN] erro rota=${rota} userId=${userIdLog} veredito=${vereditoLog} imagemBytes=${imagemBytes}: OCR indisponível`
+      );
       return responderErro(res, 500, 'OCR indisponível no servidor', undefined, {
         detalhe: err.detalhe,
         instrucoesWindows: err.instrucoesWindows,
       });
     }
-    console.error('Erro no processamento do scanner:', err);
+    console.error(
+      `[SCAN] erro rota=${rota} userId=${userIdLog} veredito=${vereditoLog} imagemBytes=${imagemBytes}: ${err.name}: ${err.message}`
+    );
     return responderErro(
       res,
       500,
@@ -2353,6 +2322,7 @@ app.post(
   (req, res, next) => {
     upload.single('photo')(req, res, (err) => {
       if (err) {
+        logErroUploadScanner(req, '/scanner', err);
         if (err.code === 'LIMIT_FILE_SIZE') {
           return responderErro(
             res,
@@ -2378,6 +2348,7 @@ app.post(
   (req, res, next) => {
     upload.single('imagem')(req, res, (err) => {
       if (err) {
+        logErroUploadScanner(req, '/api/analisar-rotulo', err);
         return responderErro(
           res,
           400,

@@ -1,20 +1,4 @@
-/**
- * Dicionário padrão de alérgenos do RotuScan.
- *
- * Referências usadas na curadoria (confirme os textos oficiais antes da defesa do TCC):
- *  - Anvisa, RDC nº 26/2015 — rotulagem obrigatória dos principais alimentos que causam
- *    alergias alimentares (declarações "ALÉRGICOS: CONTÉM ..." e "ALÉRGICOS: PODE CONTER ...").
- *  - Lei Federal nº 10.674/2003 — obriga a advertência "CONTÉM GLÚTEN" / "NÃO CONTÉM GLÚTEN".
- *  - Anvisa, RDC nº 136/2017 — declaração de lactose ("CONTÉM LACTOSE", "ZERO LACTOSE" etc.).
- *
- * Os termos são escritos com acentos para facilitar a leitura pela equipe/nutricionista;
- * o analisador normaliza tudo (minúsculas, sem acentos) antes de comparar.
- *
- * Termos genéricos demais foram EXCLUÍDOS de propósito para evitar falsos positivos:
- *  - "farinha" sozinha (farinha de mandioca/milho/arroz não têm glúten);
- *  - "germe" e "farelo" sozinhos (germe de milho, farelo de arroz).
- * Exceções contextuais (ex.: "leite de coco", "manteiga de cacau") ficam no analisador.
- */
+
 export const DICIONARIO_PADRAO = {
   gluten: [
     'glúten',
@@ -124,4 +108,38 @@ export const ROTULOS_CATEGORIA = {
   lactose: 'Lactose',
   amendoim: 'Amendoim',
 };
+
+
+export const EXCECOES_PADRAO = {
+  gluten: [
+    'trigo sarraceno',
+    'farinha de trigo sarraceno',
+    'trigo mourisco',
+    'avelã',   ],
+  lactose: [
+    'leite de coco',
+    'leite de coco em pó',
+    'leite de amêndoas',
+    'leite de amêndoa',
+    'leite de aveia',
+    'leite de arroz',
+    'leite de soja',
+    'leite de castanha',
+    'leite de castanha de caju',
+    'leite vegetal',
+    'manteiga de cacau',
+    'manteiga de karité',
+    'manteiga de amendoim',     'ácido láctico',
+    'lactato de sódio',
+    'lactato de cálcio',
+  ],
+  amendoim: ['amêndoa', 'amêndoas'],
+};
+
+
+export const PALAVRAS_PROTEGIDAS_FUZZY = [
+  'cafeína',   'lactase',   'avelã',
+  'amêndoa',
+  'amêndoas',
+];
 

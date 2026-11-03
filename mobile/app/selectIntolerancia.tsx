@@ -31,6 +31,10 @@ import SensitivitySlider, {
   NivelSensibilidade,
 } from "../components/SensitivitySlider";
 import ConfirmModal from "../components/ConfirmModal";
+import {
+  CategoriaRestricao,
+  useRestricoesDraft,
+} from "../hooks/useRestricoesDraft";
 
 const { width } = Dimensions.get("window");
 
@@ -56,14 +60,8 @@ export default function IntoleranciasScreen() {
   });
 
   const [verificandoAcesso, setVerificandoAcesso] = useState(true);
-
-  const [glutenAtivo, setGlutenAtivo] = useState(false);
-  const [lactoseAtivo, setLactoseAtivo] = useState(false);
-  const [amendoimAtivo, setAmendoimAtivo] = useState(false);
-
-  const [glutenNivel, setGlutenNivel] = useState<NivelSensibilidade>(1);
-  const [lactoseNivel, setLactoseNivel] = useState<NivelSensibilidade>(1);
-  const [amendoimNivel, setAmendoimNivel] = useState<NivelSensibilidade>(1);
+  const [sliderEmArrasto, setSliderEmArrasto] = useState(false);
+  const { rascunho, alternar, definirNivel } = useRestricoesDraft();
 
   const [loading, setLoading] = useState(false);
   const [erroInline, setErroInline] = useState<string | null>(null);
@@ -96,18 +94,11 @@ export default function IntoleranciasScreen() {
   }, [rascunhoCadastro.email, rascunhoCadastro.senha]);
 
   const alternarSwitch = (
-    categoria: "gluten" | "lactose" | "amendoim",
+    categoria: CategoriaRestricao,
     novoEstado: boolean
   ) => {
     if (erroInline) setErroInline(null);
-
-    if (categoria === "gluten") {
-      setGlutenAtivo(novoEstado);
-    } else if (categoria === "lactose") {
-      setLactoseAtivo(novoEstado);
-    } else {
-      setAmendoimAtivo(novoEstado);
-    }
+    alternar(categoria, novoEstado);
   };
 
   const handleToqueBotaoX = () => {
@@ -115,9 +106,9 @@ export default function IntoleranciasScreen() {
       rascunhoCadastro.nome ||
         rascunhoCadastro.email ||
         rascunhoCadastro.senha ||
-        glutenAtivo ||
-        lactoseAtivo ||
-        amendoimAtivo
+        rascunho.ativos.gluten ||
+        rascunho.ativos.lactose ||
+        rascunho.ativos.amendoim
     );
 
     if (temDadosPreenchidos) {
@@ -139,14 +130,12 @@ export default function IntoleranciasScreen() {
     setErroInline(null);
 
     const restricoesSelecionadas: string[] = [];
-    if (glutenAtivo) restricoesSelecionadas.push("gluten");
-    if (lactoseAtivo) restricoesSelecionadas.push("lactose");
-    if (amendoimAtivo) restricoesSelecionadas.push("amendoim");
+    if (rascunho.ativos.gluten) restricoesSelecionadas.push("gluten");
+    if (rascunho.ativos.lactose) restricoesSelecionadas.push("lactose");
+    if (rascunho.ativos.amendoim) restricoesSelecionadas.push("amendoim");
 
     if (restricoesSelecionadas.length === 0) {
-      setErroInline(
-        "Selecione ao menos uma intolerância para concluir o cadastro."
-      );
+      setErroInline("Mantenha ao menos uma intolerância ativa.");
       return;
     }
 
@@ -157,11 +146,7 @@ export default function IntoleranciasScreen() {
         email: rascunhoCadastro.email.trim().toLowerCase(),
         senha: rascunhoCadastro.senha,
         restricoes: restricoesSelecionadas,
-        niveisSensibilidade: {
-          gluten: glutenNivel,
-          lactose: lactoseNivel,
-          amendoim: amendoimNivel,
-        },
+        niveisSensibilidade: rascunho.niveis,
         ...(rascunhoCadastro.codigoNutricionista
           ? { codigoNutricionista: rascunhoCadastro.codigoNutricionista }
           : {}),
@@ -208,6 +193,7 @@ export default function IntoleranciasScreen() {
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        scrollEnabled={!sliderEmArrasto}
       >
         <View style={styles.logoContainer}>
           <Text style={styles.logoRotu}>Rotu</Text>
@@ -230,14 +216,15 @@ export default function IntoleranciasScreen() {
           iconBackground="#FFF7E3"
           title="Glúten"
           description="Filtrar produtos que contenham trigo, centeio, cevada ou derivados para sua segurança celíaca."
-          ativo={glutenAtivo}
+          ativo={rascunho.ativos.gluten}
           onToggle={(v) => alternarSwitch("gluten", v)}
-          nivel={glutenNivel}
+          nivel={rascunho.niveis.gluten}
+          disabled={loading}
           setNivel={(n) => {
             if (erroInline) setErroInline(null);
-            setGlutenAtivo(true);
-            setGlutenNivel(n);
+            definirNivel("gluten", n);
           }}
+          onGestureActiveChange={setSliderEmArrasto}
         />
 
         <IntoleranciaCard
@@ -245,14 +232,15 @@ export default function IntoleranciasScreen() {
           iconBackground="#FFF7E3"
           title="Lactose"
           description="Identificar leite, soro de leite e traços de laticínios em alimentos processados e bebidas."
-          ativo={lactoseAtivo}
+          ativo={rascunho.ativos.lactose}
           onToggle={(v) => alternarSwitch("lactose", v)}
-          nivel={lactoseNivel}
+          nivel={rascunho.niveis.lactose}
+          disabled={loading}
           setNivel={(n) => {
             if (erroInline) setErroInline(null);
-            setLactoseAtivo(true);
-            setLactoseNivel(n);
+            definirNivel("lactose", n);
           }}
+          onGestureActiveChange={setSliderEmArrasto}
         />
 
         <IntoleranciaCard
@@ -260,14 +248,15 @@ export default function IntoleranciasScreen() {
           iconBackground="#FFF7E3"
           title="Amendoim"
           description="Monitorar amendoim e seus derivados que podem causar reações de hipersensibilidade alimentar."
-          ativo={amendoimAtivo}
+          ativo={rascunho.ativos.amendoim}
           onToggle={(v) => alternarSwitch("amendoim", v)}
-          nivel={amendoimNivel}
+          nivel={rascunho.niveis.amendoim}
+          disabled={loading}
           setNivel={(n) => {
             if (erroInline) setErroInline(null);
-            setAmendoimAtivo(true);
-            setAmendoimNivel(n);
+            definirNivel("amendoim", n);
           }}
+          onGestureActiveChange={setSliderEmArrasto}
         />
 
         <TouchableOpacity
@@ -316,6 +305,8 @@ type IntoleranciaCardProps = {
   onToggle: (value: boolean) => void;
   nivel: NivelSensibilidade;
   setNivel: (value: NivelSensibilidade) => void;
+  onGestureActiveChange: (active: boolean) => void;
+  disabled: boolean;
 };
 
 function IntoleranciaCard({
@@ -327,6 +318,8 @@ function IntoleranciaCard({
   onToggle,
   nivel,
   setNivel,
+  onGestureActiveChange,
+  disabled,
 }: IntoleranciaCardProps) {
   return (
     <View style={styles.card}>
@@ -337,6 +330,7 @@ function IntoleranciaCard({
 
         <TouchableOpacity
           activeOpacity={0.8}
+          disabled={disabled}
           onPress={() => onToggle(!ativo)}
           style={[styles.switch, ativo && styles.switchActive]}
           accessibilityRole="switch"
@@ -360,8 +354,9 @@ function IntoleranciaCard({
       <SensitivitySlider
         nivel={nivel}
         onChangeNivel={setNivel}
-        onRequestActivate={() => onToggle(true)}
         ativo={ativo}
+        readOnly={disabled}
+        onGestureActiveChange={onGestureActiveChange}
       />
     </View>
   );

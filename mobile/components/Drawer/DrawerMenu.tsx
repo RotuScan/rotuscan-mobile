@@ -126,7 +126,7 @@ export default function DrawerMenu({ visible, onClose }: DrawerMenuProps) {
         <Pressable style={styles.backdrop} onPress={onClose} />
 
         <View style={styles.drawer}>
-          {/* CABEÇALHO DO MENU COM FOTO REAL, NOME E E-MAIL + CARD BRANCO PRINCIPAL */}
+          {}
           <View>
             <View style={styles.headerBanner}>
               <View style={styles.headerTopRow}>
@@ -166,7 +166,7 @@ export default function DrawerMenu({ visible, onClose }: DrawerMenuProps) {
               ) : null}
             </View>
 
-            {/* FRAME BRANCO AMPLO DE OPÇÕES */}
+            {}
             <View style={styles.menuBody}>
               <View style={styles.menuCard}>
                 {MENU_ITEMS.map((item, idx) => (
@@ -201,7 +201,7 @@ export default function DrawerMenu({ visible, onClose }: DrawerMenuProps) {
             </View>
           </View>
 
-          {/* BOTÃO SAIR DA CONTA EM VERMELHO */}
+          {}
           <View style={styles.bottomArea}>
             <TouchableOpacity
               activeOpacity={0.82}

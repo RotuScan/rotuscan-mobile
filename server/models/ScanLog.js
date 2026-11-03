@@ -39,6 +39,12 @@ const scanLogSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    escaneadoPorNome: {
+      type: String,
+      trim: true,
+      maxlength: 100,
+      default: 'Usuário',
+    },
     nomeProduto: {
       type: String,
       required: true,
@@ -60,13 +66,13 @@ const scanLogSchema = new mongoose.Schema(
       type: String,
       trim: true,
       maxlength: 60,
-      default: '',
+      default: null,
     },
     peso: {
       type: String,
       trim: true,
       maxlength: 30,
-      default: '',
+      default: null,
     },
     // Mantido para compatibilidade com documentos legados e clientes web/mobile
     marcaPeso: {
@@ -78,6 +84,11 @@ const scanLogSchema = new mongoose.Schema(
     // Foto capturada comprimida em Base64 (data:image/jpeg;base64,...) ou URI persistente
     imagemUri: {
       type: String,
+      default: null,
+    },
+    imagemThumb: {
+      type: String,
+      select: false,
       default: null,
     },
     // Caminho relativo a server/uploads (ex.: scans/<userId>/<logId>.jpg)

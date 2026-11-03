@@ -42,10 +42,7 @@ function resolverBinarioTesseract() {
   return undefined;
 }
 
-/**
- * Executa pré-processamento com sharp e OCR com Tesseract.
- * Lança erro com code = 'OCR_UNAVAILABLE' se o Tesseract não estiver instalado ou falhar.
- */
+
 export async function extrairTextoDaImagem(caminhoImagemOriginal) {
   const tempPreprocessed = `${caminhoImagemOriginal}_prep_${Date.now()}.png`;
   try {

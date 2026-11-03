@@ -1,7 +1,6 @@
 import React, { useState, useCallback } from "react";
 import {
   ActivityIndicator,
-  Platform,
   ScrollView,
   StatusBar,
   StyleSheet,
@@ -25,24 +24,13 @@ import { useFonts } from "@expo-google-fonts/geist/useFonts";
 import AppHeader from "../components/Header/AppHeader";
 import TabBar from "../components/TabBar/indexTab";
 import api, { extrairMensagemErro } from "../services/api";
-
-type TipoFeedback = "SUGESTAO" | "PROBLEMA" | "ELOGIO" | "OUTRO";
+import { formatarGrupoData, formatarHorario } from "../utils/datas";
 
 type FeedbackEnviado = {
   id: string;
   mensagem: string;
-  tipo: TipoFeedback;
-  plataforma?: string;
-  appVersao?: string;
   createdAt?: string;
 };
-
-const OPCOES_TIPO: { valor: TipoFeedback; label: string }[] = [
-  { valor: "SUGESTAO", label: "Sugestão" },
-  { valor: "PROBLEMA", label: "Problema" },
-  { valor: "ELOGIO", label: "Elogio" },
-  { valor: "OUTRO", label: "Outro" },
-];
 
 const PERGUNTAS_FREQUENTES = [
   {
@@ -79,7 +67,6 @@ export default function AjudaScreen() {
   });
 
   const [mensagemFeedback, setMensagemFeedback] = useState("");
-  const [tipoFeedback, setTipoFeedback] = useState<TipoFeedback>("SUGESTAO");
   const [enviando, setEnviando] = useState(false);
   const [toastSucesso, setToastSucesso] = useState<string | null>(null);
   const [erroEnvio, setErroEnvio] = useState<string | null>(null);
@@ -95,8 +82,7 @@ export default function AjudaScreen() {
       const lista = Array.isArray(res.data?.itens) ? res.data.itens : [];
       setFeedbacksEnviados(lista);
     } catch {
-      // ignora silenciosamente caso ainda não tenha itens
-    } finally {
+          } finally {
       setCarregandoLista(false);
     }
   }, []);
@@ -124,27 +110,14 @@ export default function AjudaScreen() {
     setErroEnvio(null);
     setToastSucesso(null);
 
-    const plataformaAtual =
-      Platform.OS === "ios"
-        ? "ios"
-        : Platform.OS === "android"
-        ? "android"
-        : "web";
-
     try {
       const res = await api.post("/feedback", {
         mensagem: texto,
-        tipo: tipoFeedback,
-        plataforma: plataformaAtual,
-        appVersao: "1.0.0",
       });
 
       const novoItem: FeedbackEnviado = res.data?.item || {
         id: String(res.data?.id || Date.now()),
         mensagem: texto,
-        tipo: tipoFeedback,
-        plataforma: plataformaAtual,
-        appVersao: "1.0.0",
         createdAt: new Date().toISOString(),
       };
 
@@ -200,32 +173,9 @@ export default function AjudaScreen() {
           </View>
         </View>
 
-        {/* Formulário de Feedback conectado a POST /feedback */}
+        {}
         <View style={styles.boxCard}>
           <Text style={styles.boxLabel}>Enviar Feedback</Text>
-
-          <View style={styles.typeChipsRow}>
-            {OPCOES_TIPO.map((op) => {
-              const ativo = tipoFeedback === op.valor;
-              return (
-                <TouchableOpacity
-                  key={op.valor}
-                  style={[styles.typeChip, ativo && styles.typeChipActive]}
-                  activeOpacity={0.8}
-                  onPress={() => setTipoFeedback(op.valor)}
-                >
-                  <Text
-                    style={[
-                      styles.typeChipText,
-                      ativo && styles.typeChipTextActive,
-                    ]}
-                  >
-                    {op.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
 
           <TextInput
             value={mensagemFeedback}
@@ -233,7 +183,7 @@ export default function AjudaScreen() {
               setMensagemFeedback(t);
               if (erroEnvio) setErroEnvio(null);
             }}
-            placeholder="Descreva sua sugestão, dúvida ou problema encontrado (3 a 1000 caracteres)..."
+            placeholder="Descreva sua mensagem, sugestão ou dúvida (3 a 1000 caracteres)..."
             placeholderTextColor="#94A3B8"
             multiline
             numberOfLines={4}
@@ -273,7 +223,7 @@ export default function AjudaScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Lista de feedbacks enviados pelo usuário */}
+        {}
         {carregandoLista && feedbacksEnviados.length === 0 ? (
           <View style={{ paddingVertical: 12, alignItems: "center" }}>
             <ActivityIndicator size="small" color="#087443" />
@@ -283,16 +233,22 @@ export default function AjudaScreen() {
         {feedbacksEnviados.length > 0 ? (
           <View style={styles.sentQuestionsSection}>
             <Text style={styles.sectionHeader}>SEUS FEEDBACKS ENVIADOS</Text>
-            {feedbacksEnviados.map((item) => (
-              <View key={item.id} style={styles.sentCard}>
-                <View style={styles.sentTopRow}>
-                  <View style={styles.statusBadge}>
-                    <Text style={styles.statusBadgeText}>{item.tipo}</Text>
-                  </View>
+            {feedbacksEnviados.map((item) => {
+              const dataFormatada = item.createdAt
+                ? `${formatarGrupoData(item.createdAt)} às ${formatarHorario(item.createdAt)}`
+                : "";
+
+              return (
+                <View key={item.id} style={styles.sentCard}>
+                  {dataFormatada ? (
+                    <View style={styles.sentTopRow}>
+                      <Text style={styles.sentDateText}>{dataFormatada}</Text>
+                    </View>
+                  ) : null}
+                  <Text style={styles.sentQuestionText}>{item.mensagem}</Text>
                 </View>
-                <Text style={styles.sentQuestionText}>{item.mensagem}</Text>
-              </View>
-            ))}
+              );
+            })}
           </View>
         ) : null}
 
@@ -381,33 +337,7 @@ const styles = StyleSheet.create({
     fontFamily: "Geist_700Bold",
     fontSize: 14,
     color: "#1E293B",
-    marginBottom: 10,
-  },
-  typeChipsRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginBottom: 12,
-  },
-  typeChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "#CBD5E1",
-    backgroundColor: "#F8FAFC",
-  },
-  typeChipActive: {
-    backgroundColor: "#ECFDF5",
-    borderColor: "#006D37",
-  },
-  typeChipText: {
-    fontFamily: "Geist_600SemiBold",
-    fontSize: 12,
-    color: "#475569",
-  },
-  typeChipTextActive: {
-    color: "#006D37",
+    marginBottom: 14,
   },
   textArea: {
     minHeight: 96,
@@ -477,19 +407,13 @@ const styles = StyleSheet.create({
   sentTopRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "flex-start",
     marginBottom: 6,
   },
-  statusBadge: {
-    paddingHorizontal: 9,
-    paddingVertical: 3,
-    borderRadius: 999,
-    backgroundColor: "#ECFDF5",
-  },
-  statusBadgeText: {
-    fontFamily: "Geist_700Bold",
-    fontSize: 10.5,
-    color: "#006D37",
+  sentDateText: {
+    fontFamily: "Geist_500Medium",
+    fontSize: 11.5,
+    color: "#64748B",
   },
   sentQuestionText: {
     fontFamily: "Geist_500Medium",

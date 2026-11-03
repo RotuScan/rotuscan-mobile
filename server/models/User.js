@@ -2,8 +2,7 @@ import mongoose from 'mongoose';
 
 export const CATEGORIAS = ['gluten', 'lactose', 'amendoim'];
 export const CATEGORIAS_VALIDAS = CATEGORIAS;
-export const NIVEIS = [0, 1, 2]; // 0 = Leve, 1 = Moderado, 2 = Grave
-export const NIVEL_PADRAO = 1;
+export const NIVEIS = [0, 1, 2]; export const NIVEL_PADRAO = 1;
 export const TRATAMENTOS_VALIDOS = ['Dr.', 'Dra.', 'Nutri.'];
 
 export function formatarCodigoVinculo(codigo) {

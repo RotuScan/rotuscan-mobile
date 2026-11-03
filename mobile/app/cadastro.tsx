@@ -130,8 +130,7 @@ export default function CadastroScreen() {
       return;
     }
 
-    // Mantém os dados apenas em memória (AuthContext) — a senha nunca vai para o AsyncStorage
-    setRascunhoCadastro((prev) => ({
+        setRascunhoCadastro((prev) => ({
       ...prev,
       nome: nomeLimpo,
       email: emailLimpo,
@@ -166,7 +165,7 @@ export default function CadastroScreen() {
             { transform: [{ translateX: shakeAnim }] },
           ]}
         >
-          {/* NOME */}
+          {}
           <Text style={styles.label}>Usuário (Nome completo)</Text>
           <View
             style={[
@@ -197,7 +196,7 @@ export default function CadastroScreen() {
             </View>
           ) : null}
 
-          {/* E-MAIL */}
+          {}
           <Text style={[styles.label, styles.fieldLabelSpacing]}>E-mail</Text>
           <View
             style={[
@@ -229,7 +228,7 @@ export default function CadastroScreen() {
             </View>
           ) : null}
 
-          {/* SENHA */}
+          {}
           <Text style={[styles.label, styles.fieldLabelSpacing]}>Senha</Text>
           <View
             style={[
@@ -272,7 +271,7 @@ export default function CadastroScreen() {
             </View>
           ) : null}
 
-          {/* REPITA A SENHA */}
+          {}
           <Text style={[styles.label, styles.fieldLabelSpacing]}>
             Repita a senha
           </Text>

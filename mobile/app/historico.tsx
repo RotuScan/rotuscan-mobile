@@ -57,10 +57,7 @@ export default function Historico() {
   const [refreshing, setRefreshing] = useState(false);
   const [erroInline, setErroInline] = useState<string | null>(null);
 
-  const focoInicialRef = useRef(false);
-
-  // Debounce de 400 ms na busca
-  useEffect(() => {
+    useEffect(() => {
     const timer = setTimeout(() => {
       setBuscaDebounced(busca.trim());
     }, 400);
@@ -109,19 +106,9 @@ export default function Historico() {
     [filtro, buscaDebounced]
   );
 
-  // Recarrega quando filtro ou buscaDebounced mudam
-  useEffect(() => {
-    buscarHistorico(1, true, false);
-  }, [buscarHistorico]);
-
-  // Recarrega ao ganhar foco
-  useFocusEffect(
+    useFocusEffect(
     useCallback(() => {
-      if (focoInicialRef.current) {
-        buscarHistorico(1, true, false);
-      } else {
-        focoInicialRef.current = true;
-      }
+      buscarHistorico(1, true, false);
     }, [buscarHistorico])
   );
 
@@ -136,8 +123,7 @@ export default function Historico() {
     }
   };
 
-  // Agrupa os registros por data ("Hoje", "Ontem", "06 de Set, 2026")
-  const grupos = useMemo(() => {
+    const grupos = useMemo(() => {
     const resultado: {
       titulo: string;
       itens: ItemHistorico[];
@@ -174,7 +160,7 @@ export default function Historico() {
 
       <AppHeader />
 
-      {/* Conteúdo do histórico */}
+      {}
       <ScrollView
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
@@ -200,7 +186,7 @@ export default function Historico() {
           </View>
         ) : null}
 
-        {/* Pesquisa com debounce de 400ms no servidor */}
+        {}
         <View style={styles.search}>
           <Feather name="search" size={18} color="#728078" />
 
@@ -223,7 +209,7 @@ export default function Historico() {
           )}
         </View>
 
-        {/* Pílulas de Filtro */}
+        {}
         <View style={styles.filtros}>
           {(["Todos", "Risco", "Seguro"] as Filtro[]).map((opcao) => {
             const ativo = filtro === opcao;
@@ -260,7 +246,7 @@ export default function Historico() {
           })}
         </View>
 
-        {/* Linha do tempo */}
+        {}
         {carregando && itens.length === 0 ? (
           <View style={styles.loadingArea}>
             <ActivityIndicator size="large" color="#00783F" />
@@ -272,16 +258,20 @@ export default function Historico() {
                 <Text style={styles.dataGrupo}>{grupo.titulo}</Text>
 
                 {grupo.itens.map((item, indice) => {
-                  const seguro = item.veredito === "SEGURO";
+                  const seguro = String(item.veredito).toUpperCase() === "SEGURO";
                   const cor = seguro ? "#00783F" : "#BF2922";
                   const primeiro = indice === 0;
                   const ultimo = indice === grupo.itens.length - 1;
+                  const primeiroAlergico = item.alergicosDetectados?.[0];
                   const catPrincipal =
-                    item.alergicosDetectados?.[0]?.categoria || null;
+                    typeof primeiroAlergico === "string"
+                      ? primeiroAlergico
+                      : primeiroAlergico?.categoria || null;
+                  const itemId = item.id || (item as any)._id;
 
                   return (
-                    <View key={item.id} style={styles.itemTimeline}>
-                      {/* Coluna da linha e bolinha */}
+                    <View key={itemId} style={styles.itemTimeline}>
+                      {}
                       <View style={styles.trilho}>
                         {grupo.itens.length > 1 && (
                           <View
@@ -302,7 +292,7 @@ export default function Historico() {
                         />
                       </View>
 
-                      {/* Card do produto clicável */}
+                      {}
                       <TouchableOpacity
                         style={styles.card}
                         activeOpacity={0.8}

@@ -17,7 +17,6 @@ export const NIVEIS_LABELS: Record<NivelSensibilidade, string> = {
   2: "Grave",
 };
 
-// Preenchimento visual conforme Figma: ~15% (Leve), 50% (Moderado), 100% (Grave)
 const FILL_FRACTIONS: Record<NivelSensibilidade, number> = {
   0: 0.15,
   1: 0.5,
@@ -31,15 +30,16 @@ type SensitivitySliderProps = {
   ativo?: boolean;
   readOnly?: boolean;
   label?: string;
+  onGestureActiveChange?: (active: boolean) => void;
 };
 
 export default function SensitivitySlider({
   nivel,
   onChangeNivel,
-  onRequestActivate,
   ativo = true,
   readOnly = false,
   label = "Nível de Sensibilidade",
+  onGestureActiveChange,
 }: SensitivitySliderProps) {
   const [larguraBarra, setLarguraBarra] = useState(0);
   const animFraction = useRef(
@@ -52,18 +52,15 @@ export default function SensitivitySlider({
   const larguraRef = useRef(0);
   const startXRef = useRef(0);
 
-  const podeInteragir = !readOnly && Boolean(onChangeNivel);
+  const podeInteragir = !readOnly && ativo && Boolean(onChangeNivel);
   const podeInteragirRef = useRef(podeInteragir);
   podeInteragirRef.current = podeInteragir;
-
-  const ativoRef = useRef(ativo);
-  ativoRef.current = ativo;
 
   const onChangeRef = useRef(onChangeNivel);
   onChangeRef.current = onChangeNivel;
 
-  const onRequestActivateRef = useRef(onRequestActivate);
-  onRequestActivateRef.current = onRequestActivate;
+  const onGestureActiveChangeRef = useRef(onGestureActiveChange);
+  onGestureActiveChangeRef.current = onGestureActiveChange;
 
   useEffect(() => {
     Animated.spring(animFraction, {
@@ -78,16 +75,13 @@ export default function SensitivitySlider({
     const w = larguraRef.current;
     if (w <= 0) return nivelRef.current;
     const ratio = Math.max(0, Math.min(1, x / w));
-    if (ratio < 0.34) return 0;
-    if (ratio < 0.68) return 1;
+    if (ratio < 0.325) return 0;
+    if (ratio < 0.75) return 1;
     return 2;
   };
 
   const aplicarNovoNivel = (novo: NivelSensibilidade) => {
     if (!podeInteragirRef.current) return;
-    if (!ativoRef.current) {
-      onRequestActivateRef.current?.();
-    }
     onChangeRef.current?.(novo);
   };
 
@@ -95,8 +89,10 @@ export default function SensitivitySlider({
     PanResponder.create({
       onStartShouldSetPanResponder: () => podeInteragirRef.current,
       onMoveShouldSetPanResponder: () => podeInteragirRef.current,
+      onPanResponderTerminationRequest: () => false,
       onPanResponderGrant: (evt) => {
         if (!podeInteragirRef.current) return;
+        onGestureActiveChangeRef.current?.(true);
         const x = evt.nativeEvent.locationX;
         startXRef.current = x;
         const novo = calcularNivelPorPosicaoX(x);
@@ -112,12 +108,16 @@ export default function SensitivitySlider({
         }
       },
       onPanResponderRelease: (_evt, gestureState) => {
-        if (!podeInteragirRef.current || larguraRef.current <= 0) return;
-        const xFinal = startXRef.current + gestureState.dx;
-        const xClamped = Math.max(0, Math.min(larguraRef.current, xFinal));
-        const novo = calcularNivelPorPosicaoX(xClamped);
-        aplicarNovoNivel(novo);
+        if (podeInteragirRef.current && larguraRef.current > 0) {
+          const xFinal = startXRef.current + gestureState.dx;
+          const xClamped = Math.max(0, Math.min(larguraRef.current, xFinal));
+          const novo = calcularNivelPorPosicaoX(xClamped);
+          aplicarNovoNivel(novo);
+        }
+        onGestureActiveChangeRef.current?.(false);
       },
+      onPanResponderTerminate: () =>
+        onGestureActiveChangeRef.current?.(false),
     })
   ).current;
 
@@ -129,9 +129,6 @@ export default function SensitivitySlider({
 
   const selecionarNivelDireto = (novo: NivelSensibilidade) => {
     if (!podeInteragir) return;
-    if (!ativo) {
-      onRequestActivate?.();
-    }
     onChangeNivel?.(novo);
   };
 
@@ -174,7 +171,7 @@ export default function SensitivitySlider({
         </Text>
       </View>
 
-      {/* Trilha interativa — PanResponder puro sem Views filhas interceptando locationX */}
+      {}
       <View
         style={styles.trackTouchArea}
         onLayout={handleLayout}
@@ -198,7 +195,7 @@ export default function SensitivitySlider({
           {ativo && <View style={styles.trackFillHighlight} />}
         </Animated.View>
 
-        {/* 3 pontos visuais na trilha */}
+        {}
         {([0, 1, 2] as NivelSensibilidade[]).map((pt) => {
           const posPercent = pt === 0 ? "15%" : pt === 1 ? "50%" : "100%";
           const preenchido = FILL_FRACTIONS[nivel] >= FILL_FRACTIONS[pt];
@@ -218,7 +215,7 @@ export default function SensitivitySlider({
           );
         })}
 
-        {/* Bolinha (thumb) animada */}
+        {}
         {larguraBarra > 0 && (
           <Animated.View
             pointerEvents="none"
@@ -233,7 +230,7 @@ export default function SensitivitySlider({
         )}
       </View>
 
-      {/* Rótulos Leve / Moderado / Grave clicáveis com área de toque ampla */}
+      {}
       <View style={styles.labelsRow}>
         {([0, 1, 2] as NivelSensibilidade[]).map((item) => {
           const selecionado = nivel === item;
@@ -267,7 +264,7 @@ export default function SensitivitySlider({
         })}
       </View>
 
-      {/* Legenda informativa quando Leve (0) está ativo */}
+      {}
       {ativo && nivel === 0 && (
         <Text style={styles.leveCaption}>
           Avisos de &apos;pode conter&apos; serão ignorados para este alérgeno

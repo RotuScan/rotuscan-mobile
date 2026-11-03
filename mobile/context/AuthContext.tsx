@@ -53,6 +53,7 @@ type AuthContextType = {
     token: string | null,
     usuario: UsuarioPublico
   ) => Promise<void>;
+  atualizarUsuario: (parcial: Partial<UsuarioPublico>) => Promise<void>;
   atualizarAvatarContexto: (avatarBase64: string) => Promise<void>;
   encerrarSessao: () => Promise<void>;
 };
@@ -72,6 +73,7 @@ const AuthContext = createContext<AuthContextType>({
   setRascunhoCadastro: () => {},
   limparRascunhoCadastro: () => {},
   salvarSessaoUsuario: async () => {},
+  atualizarUsuario: async () => {},
   atualizarAvatarContexto: async () => {},
   encerrarSessao: async () => {},
 });
@@ -81,8 +83,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [rascunhoCadastro, setRascunhoCadastro] =
     useState<RascunhoCadastro>(RASCUNHO_VAZIO);
 
-  // Hidrata dados básicos do AsyncStorage ao montar o provider
-  useEffect(() => {
+      useEffect(() => {
     let ativo = true;
     AsyncStorage.multiGet([
       "@usuario_id",
@@ -91,19 +92,39 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       "@usuario_avatar",
       "@usuario_restricoes",
       "@usuario_niveis",
+      "@restricao_gluten",
+      "@restricao_lactose",
+      "@restricao_amendoim",
     ])
-      .then((entries) => {
+      .then(async (entries) => {
         if (!ativo) return;
         const map = Object.fromEntries(entries);
         const id = map["@usuario_id"];
         if (!id) return;
 
         let restricoes: string[] = [];
-        try {
-          if (map["@usuario_restricoes"]) {
+        if (map["@usuario_restricoes"]) {
+          try {
             restricoes = JSON.parse(map["@usuario_restricoes"]!);
+          } catch {}
+        } else {
+                    if (map["@restricao_gluten"] === "true") restricoes.push("gluten");
+          if (map["@restricao_lactose"] === "true") restricoes.push("lactose");
+          if (map["@restricao_amendoim"] === "true") restricoes.push("amendoim");
+          if (restricoes.length > 0) {
+            await AsyncStorage.setItem(
+              "@usuario_restricoes",
+              JSON.stringify(restricoes)
+            );
           }
-        } catch {}
+        }
+
+                await AsyncStorage.multiRemove([
+          "@restricao_gluten",
+          "@restricao_lactose",
+          "@restricao_amendoim",
+          "@usuario_liberar_tracos",
+        ]).catch(() => {});
 
         let niveis: NiveisSensibilidade = {
           gluten: 1,
@@ -144,33 +165,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           ? String(usuario.avatar)
           : avatarExistente || null;
 
+      const restricoesArray = Array.isArray(usuario.restricoes)
+        ? usuario.restricoes
+        : [];
+      const niveisObj = usuario.niveisSensibilidade || {
+        gluten: 1,
+        lactose: 1,
+        amendoim: 1,
+      };
+
       const pares: [string, string][] = [
         ["@usuario_id", String(usuario.id)],
         ["@usuario_nome", String(usuario.nome || "")],
         ["@usuario_email", String(usuario.email || "")],
-        ["@usuario_restricoes", JSON.stringify(usuario.restricoes || [])],
-        [
-          "@usuario_niveis",
-          JSON.stringify(
-            usuario.niveisSensibilidade || {
-              gluten: 1,
-              lactose: 1,
-              amendoim: 1,
-            }
-          ),
-        ],
-        [
-          "@restricao_gluten",
-          String((usuario.restricoes || []).includes("gluten")),
-        ],
-        [
-          "@restricao_lactose",
-          String((usuario.restricoes || []).includes("lactose")),
-        ],
-        [
-          "@restricao_amendoim",
-          String((usuario.restricoes || []).includes("amendoim")),
-        ],
+        ["@usuario_restricoes", JSON.stringify(restricoesArray)],
+        ["@usuario_niveis", JSON.stringify(niveisObj)],
       ];
 
       if (token) {
@@ -182,11 +191,98 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       await AsyncStorage.multiSet(pares);
 
+            await AsyncStorage.multiRemove([
+        "@restricao_gluten",
+        "@restricao_lactose",
+        "@restricao_amendoim",
+        "@usuario_liberar_tracos",
+      ]).catch(() => {});
+
       setUsuarioAtual((prev) => ({
         ...prev,
         ...usuario,
+        restricoes: restricoesArray,
+        niveisSensibilidade: niveisObj,
         avatar: avatarFinal,
       }));
+    },
+    []
+  );
+
+  
+  const atualizarUsuario = useCallback(
+    async (parcial: Partial<UsuarioPublico>) => {
+      const pares: [string, string][] = [];
+      if (parcial.nome !== undefined) {
+        pares.push(["@usuario_nome", String(parcial.nome || "")]);
+      }
+      if (parcial.email !== undefined) {
+        pares.push(["@usuario_email", String(parcial.email || "")]);
+      }
+      if (parcial.avatar !== undefined && parcial.avatar !== null) {
+        pares.push(["@usuario_avatar", String(parcial.avatar)]);
+      }
+      if (parcial.restricoes !== undefined) {
+        pares.push([
+          "@usuario_restricoes",
+          JSON.stringify(parcial.restricoes || []),
+        ]);
+      }
+      if (parcial.niveisSensibilidade !== undefined) {
+        pares.push([
+          "@usuario_niveis",
+          JSON.stringify(parcial.niveisSensibilidade),
+        ]);
+      }
+
+      if (pares.length > 0) {
+        await AsyncStorage.multiSet(pares);
+      }
+
+      setUsuarioAtual((prev) => {
+        if (!prev) {
+          if (!parcial.id && !parcial.email) return null;
+          return {
+            id: parcial.id || "",
+            nome: parcial.nome || "Usuário",
+            email: parcial.email || "",
+            avatar: parcial.avatar || null,
+            role: parcial.role || "PACIENTE",
+            restricoes: parcial.restricoes || [],
+            niveisSensibilidade: parcial.niveisSensibilidade || {
+              gluten: 1,
+              lactose: 1,
+              amendoim: 1,
+            },
+            nutricionista: parcial.nutricionista || null,
+            restricoesAtualizadasEm: parcial.restricoesAtualizadasEm || null,
+            restricoesAtualizadasPor: parcial.restricoesAtualizadasPor || null,
+          };
+        }
+
+        const novasRestricoes =
+          parcial.restricoes !== undefined
+            ? parcial.restricoes
+            : prev.restricoes;
+        const novosNiveis =
+          parcial.niveisSensibilidade !== undefined
+            ? { ...prev.niveisSensibilidade, ...parcial.niveisSensibilidade }
+            : prev.niveisSensibilidade;
+
+        return {
+          ...prev,
+          ...parcial,
+          restricoes: novasRestricoes,
+          niveisSensibilidade: novosNiveis,
+        };
+      });
+
+            await AsyncStorage.multiRemove([
+        "@restricao_gluten",
+        "@restricao_lactose",
+        "@restricao_amendoim",
+        "@usuario_liberar_tracos",
+      ]).catch(() => {});
     },
     []
   );
@@ -221,6 +317,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setRascunhoCadastro,
         limparRascunhoCadastro,
         salvarSessaoUsuario,
+        atualizarUsuario,
         atualizarAvatarContexto,
         encerrarSessao,
       }}

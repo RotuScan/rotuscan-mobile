@@ -48,6 +48,12 @@ const COLORS = {
   redLight: "#FFF1F1",
 };
 
+const ROTULOS_NIVEL: Record<0 | 1 | 2, string> = {
+  0: "Leve",
+  1: "Moderado",
+  2: "Grave",
+};
+
 type OptionProps = {
   icon: React.ComponentProps<typeof Feather>["name"];
   title: string;
@@ -67,6 +73,7 @@ export default function PerfilScreen() {
   const {
     usuarioAtual,
     salvarSessaoUsuario,
+    atualizarUsuario,
     atualizarAvatarContexto,
     encerrarSessao,
   } = useAuth();
@@ -95,6 +102,26 @@ export default function PerfilScreen() {
     );
   const [modalDesvincularVisivel, setModalDesvincularVisivel] = useState(false);
   const [desvinculando, setDesvinculando] = useState(false);
+  const categoriasRestricao: {
+    categoria: "gluten" | "lactose" | "amendoim";
+    nome: string;
+  }[] = [
+    { categoria: "gluten", nome: "Glúten" },
+    { categoria: "lactose", nome: "Lactose" },
+    { categoria: "amendoim", nome: "Amendoim" },
+  ];
+  const resumoIntolerancias = categoriasRestricao
+    .filter(({ categoria }) =>
+      usuarioAtual?.restricoes?.some(
+        (restricao) => restricao.toLowerCase() === categoria
+      )
+    )
+    .map(({ categoria, nome }) => {
+      const nivel =
+        usuarioAtual?.niveisSensibilidade?.[categoria] ?? 1;
+      return `${nome}: ${ROTULOS_NIVEL[nivel]}`;
+    })
+    .join(" · ");
 
   const carregarDadosPerfil = useCallback(
     async (isRefresh = false) => {
@@ -450,6 +477,18 @@ export default function PerfilScreen() {
           <Text style={styles.sectionTitle}>OPÇÕES DA CONTA</Text>
 
           <View style={styles.optionsCard}>
+            <Option
+              icon="shield"
+              title="Minhas intolerâncias"
+              subtitle={
+                resumoIntolerancias ||
+                "Nenhuma intolerância ativa"
+              }
+              onPress={() => abrirRota("/editar-perfil")}
+            />
+
+            <View style={styles.optionDivider} />
+
             <Option
               icon="user"
               title="Dados pessoais e metas"

@@ -53,6 +53,12 @@ type ItemHistoricoAPI = {
   createdAt?: string;
 };
 
+const ROTULOS_NIVEL: Record<0 | 1 | 2, string> = {
+  0: "Leve",
+  1: "Moderado",
+  2: "Grave",
+};
+
 export default function HomeScreen() {
   const [fontsLoaded] = useFonts({
     Geist_400Regular,
@@ -61,10 +67,16 @@ export default function HomeScreen() {
     Geist_700Bold,
   });
 
-  const { salvarSessaoUsuario } = useAuth();
+  const { usuarioAtual, atualizarUsuario } = useAuth();
 
-  const [nomeUsuario, setNomeUsuario] = useState("Usuário");
-  const [restricoesAtivas, setRestricoesAtivas] = useState<string[]>([]);
+  const nomeUsuario = usuarioAtual?.nome
+    ? usuarioAtual.nome.trim().split(" ")[0]
+    : "Usuário";
+  const restricoesAtivas = Array.isArray(usuarioAtual?.restricoes)
+    ? usuarioAtual.restricoes.map((r) => r.toLowerCase())
+    : [];
+  const niveisSensibilidade = usuarioAtual?.niveisSensibilidade;
+
   const [diasConsecutivos, setDiasConsecutivos] = useState(0);
   const [escaneamentosSegurosMes, setEscaneamentosSegurosMes] = useState(0);
   const [metaMensal, setMetaMensal] = useState(50);
@@ -96,27 +108,12 @@ export default function HomeScreen() {
       setErroInline(null);
 
       try {
-        const [
-          nomeSalvo,
-          restricoesJson,
-          conviteDispSalvo,
-          restricoesVistasEmSalvo,
-        ] = await Promise.all([
-          AsyncStorage.getItem("@usuario_nome"),
-          AsyncStorage.getItem("@usuario_restricoes"),
+        const [conviteDispSalvo, restricoesVistasEmSalvo] = await Promise.all([
           AsyncStorage.getItem("@vinculo_convite_dispensado"),
           AsyncStorage.getItem("@restricoes_vistas_em"),
         ]);
 
         setConviteDispensado(conviteDispSalvo === "true");
-
-        if (nomeSalvo && nomeSalvo.trim()) {
-          setNomeUsuario(nomeSalvo.trim().split(" ")[0]);
-        }
-        if (restricoesJson) {
-          const parsed: string[] = JSON.parse(restricoesJson);
-          setRestricoesAtivas(parsed.map((r) => r.toLowerCase()));
-        }
 
         const [resPerfil, resCurtidos, resRecentes] = await Promise.all([
           api.get("/users/perfil"),
@@ -131,8 +128,7 @@ export default function HomeScreen() {
 
         setNutricionista(nutriServidor);
 
-        // Verifica se o nutricionista atualizou as restrições depois da última visualização
-        const atualizadasPor = u?.restricoesAtualizadasPor;
+                const atualizadasPor = u?.restricoesAtualizadasPor;
         const atualizadasEm = u?.restricoesAtualizadasEm;
         if (atualizadasPor === "NUTRICIONISTA" && atualizadasEm) {
           const tsServidor = new Date(atualizadasEm).getTime();
@@ -148,15 +144,6 @@ export default function HomeScreen() {
           }
         }
 
-        if (u?.nome) {
-          setNomeUsuario(String(u.nome).trim().split(" ")[0]);
-        }
-        if (Array.isArray(u?.restricoes)) {
-          setRestricoesAtivas(
-            u.restricoes.map((r: string) => r.toLowerCase())
-          );
-        }
-
         setDiasConsecutivos(Number(st.diasConsecutivos || 0));
         setEscaneamentosSegurosMes(Number(st.escaneamentosSegurosMes || 0));
         setMetaMensal(Number(st.metaMensal || 50));
@@ -169,12 +156,14 @@ export default function HomeScreen() {
         );
 
         if (u?.id || u?._id) {
-          await salvarSessaoUsuario(null, {
+          await atualizarUsuario({
             id: String(u.id || u._id),
             nome: u.nome || "",
             email: u.email || "",
             avatar: u.avatar || null,
-            restricoes: u.restricoes || [],
+            restricoes: Array.isArray(u.restricoes)
+              ? u.restricoes.map((r: string) => r.toLowerCase())
+              : [],
             niveisSensibilidade: u.niveisSensibilidade || {
               gluten: 1,
               lactose: 1,
@@ -191,7 +180,7 @@ export default function HomeScreen() {
         setRefreshing(false);
       }
     },
-    [salvarSessaoUsuario]
+    [atualizarUsuario]
   );
 
   useFocusEffect(
@@ -231,7 +220,7 @@ export default function HomeScreen() {
 
       <AppHeader />
 
-      {/* CONTEÚDO PRINCIPAL */}
+      {}
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -251,10 +240,10 @@ export default function HomeScreen() {
           </View>
         ) : null}
 
-        {/* SAUDAÇÃO */}
+        {}
         <Text style={styles.greeting}>Olá {nomeUsuario}!</Text>
 
-        {/* AVISO DE RESTRIÇÕES ATUALIZADAS PELO NUTRICIONISTA */}
+        {}
         {avisoRestricoesNutri ? (
           <View style={styles.nutriUpdateBanner}>
             <Ionicons name="notifications" size={18} color="#006D37" />
@@ -270,7 +259,7 @@ export default function HomeScreen() {
           </View>
         ) : null}
 
-        {/* ACOMPANHAMENTO NUTRICIONAL OU CONVITE DISCRETO */}
+        {}
         {nutricionista ? (
           <View style={styles.acompanhamentoCard}>
             <View style={styles.acompanhamentoIconBox}>
@@ -332,13 +321,15 @@ export default function HomeScreen() {
             <TouchableOpacity
               activeOpacity={0.8}
               style={styles.intolerancia}
-              onPress={() => router.push("/alertas" as never)}
+              onPress={() => router.push("/editar-perfil" as never)}
             >
               <Image
                 style={styles.iconIntoleranciaGluten}
                 source={require("../assets/images/iconGluInt.png")}
               />
-              <Text style={styles.intoleranciaText}>Glúten</Text>
+              <Text style={styles.intoleranciaText}>
+                Glúten · {ROTULOS_NIVEL[niveisSensibilidade?.gluten ?? 1]}
+              </Text>
             </TouchableOpacity>
           )}
 
@@ -346,13 +337,15 @@ export default function HomeScreen() {
             <TouchableOpacity
               activeOpacity={0.8}
               style={styles.intolerancia}
-              onPress={() => router.push("/alertas" as never)}
+              onPress={() => router.push("/editar-perfil" as never)}
             >
               <Image
                 style={styles.iconIntolerancia}
                 source={require("../assets/images/iconLacInt.png")}
               />
-              <Text style={styles.intoleranciaText}>Lactose</Text>
+              <Text style={styles.intoleranciaText}>
+                Lactose · {ROTULOS_NIVEL[niveisSensibilidade?.lactose ?? 1]}
+              </Text>
             </TouchableOpacity>
           )}
 
@@ -360,20 +353,22 @@ export default function HomeScreen() {
             <TouchableOpacity
               activeOpacity={0.8}
               style={styles.intolerancia}
-              onPress={() => router.push("/alertas" as never)}
+              onPress={() => router.push("/editar-perfil" as never)}
             >
               <Image
                 style={styles.iconIntoleranciaGluten}
                 source={require("../assets/images/iconAmendoim.png")}
               />
-              <Text style={styles.intoleranciaText}>Amendoim</Text>
+              <Text style={styles.intoleranciaText}>
+                Amendoim · {ROTULOS_NIVEL[niveisSensibilidade?.amendoim ?? 1]}
+              </Text>
             </TouchableOpacity>
           )}
 
           <TouchableOpacity
             activeOpacity={0.8}
             style={styles.addChipButton}
-            onPress={() => router.push("/alertas" as never)}
+            onPress={() => router.push("/editar-perfil" as never)}
             accessibilityLabel="Configurar intolerâncias e sensibilidade"
             accessibilityRole="button"
           >

@@ -54,8 +54,7 @@ export default function ScanThumb({
     };
   }, [imagemUri, imagemUrl, localUri]);
 
-  // 1. URI local recém-capturada pela câmera
-  if (localUri && !erroImagem) {
+    if (localUri && !erroImagem) {
     return (
       <View style={[styles.container, style]}>
         <Image
@@ -68,8 +67,7 @@ export default function ScanThumb({
     );
   }
 
-  // 2. imagemUri persistida no MongoDB (data:image/jpeg;base64,... ou URL direta)
-  if (imagemUri && !erroImagem) {
+    if (imagemUri && !erroImagem) {
     const uriResolvida =
       imagemUri.startsWith("data:") || imagemUri.startsWith("http")
         ? imagemUri

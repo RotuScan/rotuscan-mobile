@@ -52,8 +52,7 @@ export default function IndexSplashScreen() {
       try {
         await SplashScreen.hideAsync();
       } catch {
-        // Ignora caso a splash nativa já tenha sido ocultada
-      }
+              }
 
       const inicio = Date.now();
       let destino: "/home" | "/login" = "/login";
@@ -108,8 +107,7 @@ export default function IndexSplashScreen() {
               ]);
               destino = "/login";
             } else {
-              // Offline temporário mas possui token + id salvos
-              const usuarioId = await AsyncStorage.getItem("@usuario_id");
+                            const usuarioId = await AsyncStorage.getItem("@usuario_id");
               destino = usuarioId ? "/home" : "/login";
             }
           }
