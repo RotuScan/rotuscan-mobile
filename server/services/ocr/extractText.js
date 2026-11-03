@@ -1,19 +1,4 @@
-/**
- * Motor de OCR do RotuScan (isolado para poder ser trocado no futuro por ML Kit,
- * Google Vision etc. sem mexer na análise de alérgenos).
- *
- * Contrato de saída de extrairTexto():
- *   {
- *     motor: 'tesseract',
- *     textoBruto,        // texto cru da passada principal (gravado em ScanLog.textoBruto)
- *     textoBusca,        // união das passadas (usado SÓ para buscar alérgenos — recall)
- *     linhasExibicao,    // [{ palavras: [{ texto, conf }] }] da melhor passada (para limpeza/exibição)
- *     confianca,         // 0..100 (média por palavra da passada de exibição) ou null
- *     passadas,          // [{ variante, psm, confianca, caracteres, ms }]
- *     temposMs,          // { preparo, variantes, ocrPrincipal, ocrExtras, total }
- *     regiaoAplicada,    // { left, top, width, height } em pixels ou null
- *   }
- */
+
 import { execFile } from 'child_process';
 import fs from 'fs';
 import path from 'path';
@@ -28,9 +13,7 @@ const DEBUG_DIR = path.join(SERVER_ROOT, 'uploads', 'debug');
 export const CONFIG_OCR_PADRAO = Object.freeze({
   larguraAlvo: 2000,
   psmPrincipal: 6,
-  // Passadas extras só rodam se a confiança média da principal ficar abaixo disto
-  // OU se o marcador "ingredientes" não for encontrado.
-  limiarConfiancaExtra: 70,
+      limiarConfiancaExtra: 70,
   passadasExtras: [
     { variante: 'V2', psm: 6 },
     { variante: 'V3', psm: 11 },
@@ -38,9 +21,6 @@ export const CONFIG_OCR_PADRAO = Object.freeze({
   usarPassadasExtras: true,
 });
 
-// ---------------------------------------------------------------------------
-// Binário e tessdata
-// ---------------------------------------------------------------------------
 
 export function resolverBinarioTesseract() {
   if (process.env.TESSERACT_PATH && fs.existsSync(process.env.TESSERACT_PATH)) {
@@ -53,10 +33,7 @@ export function resolverBinarioTesseract() {
   return 'tesseract';
 }
 
-/**
- * Pasta de modelos: TESSDATA_DIR (se existir) > server/tessdata (se tiver por.traineddata)
- * > padrão da instalação do Tesseract.
- */
+
 export function resolverTessdataDir() {
   const candidatos = [process.env.TESSDATA_DIR, path.join(SERVER_ROOT, 'tessdata')].filter(Boolean);
   for (const dir of candidatos) {
@@ -65,7 +42,7 @@ export function resolverTessdataDir() {
   return null;
 }
 
-/** Informa se o modelo "por" parece ser o tessdata_fast (~2 MB) ou o tessdata_best (~13+ MB). */
+
 export function diagnosticarModeloPor() {
   const dirs = [
     resolverTessdataDir(),
@@ -99,11 +76,7 @@ function erroOcrIndisponivel(err) {
   return erroOcr;
 }
 
-/**
- * Executa o binário do Tesseract via execFile (sem shell) e devolve a saída TSV.
- * A versão instalada do node-tesseract-ocr (2.2.x) não tem preset TSV nem confiança por
- * palavra, por isso chamamos o binário diretamente.
- */
+
 export function executarTesseractTsv(caminhoImagem, { psm = 6, lang = 'por', oem = 1 } = {}) {
   const args = [caminhoImagem, 'stdout', '-l', lang, '--oem', String(oem), '--psm', String(psm)];
   const tessdata = resolverTessdataDir();
@@ -123,9 +96,7 @@ export function executarTesseractTsv(caminhoImagem, { psm = 6, lang = 'por', oem
   });
 }
 
-/**
- * Converte a saída TSV do Tesseract (level 5 = palavra) em linhas com confiança por palavra.
- */
+
 export function parseTsv(tsv) {
   const linhasMap = new Map();
   const ordem = [];

@@ -103,8 +103,7 @@ export default function ResultadoDetalhadoScreen() {
     return null;
   });
 
-  // Edição inline de nome, marca e peso
-  const [editandoMeta, setEditandoMeta] = useState(false);
+    const [editandoMeta, setEditandoMeta] = useState(false);
   const [nomeInput, setNomeInput] = useState("");
   const [marcaInput, setMarcaInput] = useState("");
   const [pesoInput, setPesoInput] = useState("");

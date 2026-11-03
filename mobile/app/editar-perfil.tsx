@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons, Feather } from "@expo/vector-icons";
-import { useRouter, useFocusEffect, usePreventRemove } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import {
   Geist_400Regular,
   Geist_500Medium,
@@ -90,8 +90,7 @@ export default function EditarPerfilScreen() {
     usuarioAtualRef.current = usuarioAtual;
   }, [usuarioAtual]);
 
-  // Busca sempre do servidor (fonte única da verdade).
-  const carregarDoServidor = useCallback(
+    const carregarDoServidor = useCallback(
     async (isRefresh = false) => {
       if (isRefresh) setRefreshing(true);
       setMensagemErro(null);
@@ -114,8 +113,7 @@ export default function EditarPerfilScreen() {
         setSnapshotServidor(snap);
         inicializar(snap.restricoes, snap.niveisSensibilidade);
 
-        // Atualiza contexto e cache local de uma vez
-        await atualizarUsuario({
+                await atualizarUsuario({
           id: String(u.id || u._id || ""),
           nome: snap.nome,
           email: snap.email,
@@ -127,8 +125,7 @@ export default function EditarPerfilScreen() {
           restricoesAtualizadasPor: u.restricoesAtualizadasPor || null,
         });
       } catch (err: any) {
-        // Fallback offline a partir do contexto
-        const usuarioContexto = usuarioAtualRef.current;
+                const usuarioContexto = usuarioAtualRef.current;
         if (usuarioContexto) {
           const snapContexto: SnapshotServidor = {
             nome: usuarioContexto.nome || "",
@@ -161,8 +158,7 @@ export default function EditarPerfilScreen() {
     }, [carregarDoServidor])
   );
 
-  // Intercepta o botão voltar físico do Android se houver edições não salvas
-  useEffect(() => {
+    useEffect(() => {
     const backAction = () => {
       if (isDirty) {
         setModalDescartarVisivel(true);
@@ -177,11 +173,6 @@ export default function EditarPerfilScreen() {
     );
     return () => backHandler.remove();
   }, [isDirty]);
-
-  usePreventRemove(isDirty, ({ repeat }) => {
-    repetirAcaoPendente.current = repeat;
-    setModalDescartarVisivel(true);
-  });
 
   useEffect(() => {
     if (!sairAposDescarte || isDirty) return;
@@ -216,8 +207,7 @@ export default function EditarPerfilScreen() {
     if (rascunho.ativos.lactose) restricoesSelecionadas.push("lactose");
     if (rascunho.ativos.amendoim) restricoesSelecionadas.push("amendoim");
 
-    // Valida apenas no estado FINAL antes do salvamento
-    if (restricoesSelecionadas.length === 0) {
+        if (restricoesSelecionadas.length === 0) {
       setMensagemErro("Mantenha ao menos uma intolerância ativa.");
       return;
     }
@@ -246,8 +236,7 @@ export default function EditarPerfilScreen() {
 
       setSnapshotServidor(novoSnap);
 
-      // Sincroniza AuthContext e AsyncStorage de forma atômica
-      await atualizarUsuario({
+            await atualizarUsuario({
         id: String(usuarioAtualizado.id || usuarioAtualizado._id || ""),
         nome: novoSnap.nome,
         email: novoSnap.email,
@@ -428,7 +417,7 @@ export default function EditarPerfilScreen() {
 
       <TabBar abaAtiva="perfil" />
 
-      {/* Modal para descartar alterações não salvas */}
+      {}
       <ConfirmModal
         visible={modalDescartarVisivel}
         title="Descartar alterações?"
@@ -442,7 +431,7 @@ export default function EditarPerfilScreen() {
         }}
       />
 
-      {/* Modal para restaurar conforme servidor */}
+      {}
       <ConfirmModal
         visible={modalRestaurarVisivel}
         title="Restaurar padrões?"

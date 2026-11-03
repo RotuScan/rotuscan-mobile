@@ -82,8 +82,7 @@ export default function AjudaScreen() {
       const lista = Array.isArray(res.data?.itens) ? res.data.itens : [];
       setFeedbacksEnviados(lista);
     } catch {
-      // ignora silenciosamente caso ainda não tenha itens
-    } finally {
+          } finally {
       setCarregandoLista(false);
     }
   }, []);
@@ -174,7 +173,7 @@ export default function AjudaScreen() {
           </View>
         </View>
 
-        {/* Formulário de Feedback conectado a POST /feedback */}
+        {}
         <View style={styles.boxCard}>
           <Text style={styles.boxLabel}>Enviar Feedback</Text>
 
@@ -224,7 +223,7 @@ export default function AjudaScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Lista de feedbacks enviados pelo usuário */}
+        {}
         {carregandoLista && feedbacksEnviados.length === 0 ? (
           <View style={{ paddingVertical: 12, alignItems: "center" }}>
             <ActivityIndicator size="small" color="#087443" />

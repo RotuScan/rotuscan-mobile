@@ -71,8 +71,7 @@ export default function ScannerScreen() {
         return;
       }
 
-      // Envia SÓ a imagem autenticada via JWT; o servidor busca o perfil do usuário no MongoDB
-      const data = await enviarFotoScanner(photo.uri);
+            const data = await enviarFotoScanner(photo.uri);
 
       if (data.veredito === "INCONCLUSIVO" || data.status === "INCONCLUSIVO") {
         router.push({
@@ -139,7 +138,7 @@ export default function ScannerScreen() {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" />
 
-      {/* CÂMERA */}
+      {}
       <CameraView
         style={StyleSheet.absoluteFill}
         facing="back"
@@ -147,10 +146,10 @@ export default function ScannerScreen() {
         ref={(ref) => setCameraRef(ref)}
       />
 
-      {/* CAMADA ESCURA */}
+      {}
       <View style={styles.overlay} pointerEvents="box-none">
         <SafeAreaView style={styles.safeArea} edges={["top"]}>
-          {/* CABEÇALHO */}
+          {}
           <View style={styles.header}>
             <TouchableOpacity
               style={styles.headerButton}
@@ -190,7 +189,7 @@ export default function ScannerScreen() {
             </View>
           ) : null}
 
-          {/* CONTROLES LATERAIS */}
+          {}
           <View style={styles.sideControls}>
             <TouchableOpacity
               style={[
@@ -230,7 +229,7 @@ export default function ScannerScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* ÁREA CENTRAL DE LEITURA */}
+          {}
           <View style={styles.scannerArea}>
             <View
               style={[
@@ -251,7 +250,7 @@ export default function ScannerScreen() {
             </Text>
           </View>
 
-          {/* INDICADOR DE ANÁLISE / BOTÃO CAPTURAR */}
+          {}
           <View style={styles.bottomContainer}>
             <TouchableOpacity
               style={[

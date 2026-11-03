@@ -17,7 +17,6 @@ export const NIVEIS_LABELS: Record<NivelSensibilidade, string> = {
   2: "Grave",
 };
 
-// Preenchimento visual conforme Figma: ~15% (Leve), 50% (Moderado), 100% (Grave)
 const FILL_FRACTIONS: Record<NivelSensibilidade, number> = {
   0: 0.15,
   1: 0.5,
@@ -172,7 +171,7 @@ export default function SensitivitySlider({
         </Text>
       </View>
 
-      {/* Trilha interativa — PanResponder puro sem Views filhas interceptando locationX */}
+      {}
       <View
         style={styles.trackTouchArea}
         onLayout={handleLayout}
@@ -196,7 +195,7 @@ export default function SensitivitySlider({
           {ativo && <View style={styles.trackFillHighlight} />}
         </Animated.View>
 
-        {/* 3 pontos visuais na trilha */}
+        {}
         {([0, 1, 2] as NivelSensibilidade[]).map((pt) => {
           const posPercent = pt === 0 ? "15%" : pt === 1 ? "50%" : "100%";
           const preenchido = FILL_FRACTIONS[nivel] >= FILL_FRACTIONS[pt];
@@ -216,7 +215,7 @@ export default function SensitivitySlider({
           );
         })}
 
-        {/* Bolinha (thumb) animada */}
+        {}
         {larguraBarra > 0 && (
           <Animated.View
             pointerEvents="none"
@@ -231,7 +230,7 @@ export default function SensitivitySlider({
         )}
       </View>
 
-      {/* Rótulos Leve / Moderado / Grave clicáveis com área de toque ampla */}
+      {}
       <View style={styles.labelsRow}>
         {([0, 1, 2] as NivelSensibilidade[]).map((item) => {
           const selecionado = nivel === item;
@@ -265,7 +264,7 @@ export default function SensitivitySlider({
         })}
       </View>
 
-      {/* Legenda informativa quando Leve (0) está ativo */}
+      {}
       {ativo && nivel === 0 && (
         <Text style={styles.leveCaption}>
           Avisos de &apos;pode conter&apos; serão ignorados para este alérgeno

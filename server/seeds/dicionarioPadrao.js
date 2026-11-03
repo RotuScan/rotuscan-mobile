@@ -1,21 +1,4 @@
-/**
- * Dicionário padrão de alérgenos do RotuScan.
- *
- * Referências usadas na curadoria (confirme os textos oficiais antes da defesa do TCC):
- *  - Anvisa, RDC nº 26/2015 — rotulagem obrigatória dos principais alimentos que causam
- *    alergias alimentares (declarações "ALÉRGICOS: CONTÉM ..." e "ALÉRGICOS: PODE CONTER ...").
- *  - Lei Federal nº 10.674/2003 — obriga a advertência "CONTÉM GLÚTEN" / "NÃO CONTÉM GLÚTEN".
- *  - Anvisa, RDC nº 136/2017 — declaração de lactose ("CONTÉM LACTOSE", "ZERO LACTOSE" etc.).
- *
- * Os termos são escritos com acentos para facilitar a leitura pela equipe/nutricionista;
- * o analisador normaliza tudo (minúsculas, sem acentos) antes de comparar.
- *
- * Termos genéricos demais foram EXCLUÍDOS de propósito para evitar falsos positivos:
- *  - "farinha" sozinha (farinha de mandioca/milho/arroz não têm glúten);
- *  - "germe" e "farelo" sozinhos (germe de milho, farelo de arroz).
- * Exceções contextuais (ex.: "leite de coco", "manteiga de cacau") ficam em EXCECOES_PADRAO
- * (abaixo) e são gravadas em AllergenDictionary.excecoes.
- */
+
 export const DICIONARIO_PADRAO = {
   gluten: [
     'glúten',
@@ -126,19 +109,13 @@ export const ROTULOS_CATEGORIA = {
   amendoim: 'Amendoim',
 };
 
-/**
- * Exceções ("falsos amigos") por categoria: frases que CANCELAM o termo do dicionário
- * quando aparecem no texto. Gravadas em AllergenDictionary.excecoes (o painel do
- * nutricionista pode editar; o servidor só ACRESCENTA estas na inicialização, nunca remove).
- * LISTA SUJEITA A REVISÃO DA NUTRICIONISTA RESPONSÁVEL.
- */
+
 export const EXCECOES_PADRAO = {
   gluten: [
     'trigo sarraceno',
     'farinha de trigo sarraceno',
     'trigo mourisco',
-    'avelã', // "avela" tem a mesma chave OCR de "aveia" (i -> l); comparada sem a chave OCR
-  ],
+    'avelã',   ],
   lactose: [
     'leite de coco',
     'leite de coco em pó',
@@ -152,22 +129,16 @@ export const EXCECOES_PADRAO = {
     'leite vegetal',
     'manteiga de cacau',
     'manteiga de karité',
-    'manteiga de amendoim', // derivado de amendoim, não de leite (continua detectado em Amendoim)
-    'ácido láctico',
+    'manteiga de amendoim',     'ácido láctico',
     'lactato de sódio',
     'lactato de cálcio',
   ],
   amendoim: ['amêndoa', 'amêndoas'],
 };
 
-/**
- * Palavras reais que ficam a 1 erro de um termo do dicionário e por isso NUNCA podem
- * casar pela busca aproximada (fuzzy). A busca exata continua valendo normalmente.
- */
+
 export const PALAVRAS_PROTEGIDAS_FUZZY = [
-  'cafeína', // ~ caseína
-  'lactase', // ~ lactose (enzima usada nos produtos zero lactose)
-  'avelã',
+  'cafeína',   'lactase',   'avelã',
   'amêndoa',
   'amêndoas',
 ];

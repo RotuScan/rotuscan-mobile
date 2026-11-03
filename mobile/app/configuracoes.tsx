@@ -128,7 +128,7 @@ export default function ConfiguracoesScreen() {
           </View>
         ) : null}
 
-        {/* MEU NUTRICIONISTA */}
+        {}
         <Text style={styles.sectionTitle}>MEU NUTRICIONISTA</Text>
         <View style={styles.card}>
           {nutricionista ? (
@@ -154,7 +154,7 @@ export default function ConfiguracoesScreen() {
           )}
         </View>
 
-        {/* CONTA E PERFIL ALIMENTAR */}
+        {}
         <Text style={styles.sectionTitle}>CONTA E PERFIL ALIMENTAR</Text>
         <View style={styles.card}>
           <ConfigItem
@@ -181,7 +181,7 @@ export default function ConfiguracoesScreen() {
           />
         </View>
 
-        {/* SUPORTE E HISTÓRICO */}
+        {}
         <Text style={styles.sectionTitle}>ATIVIDADE E SUPORTE</Text>
         <View style={styles.card}>
           <ConfigItem
@@ -208,7 +208,7 @@ export default function ConfiguracoesScreen() {
           />
         </View>
 
-        {/* SESSÃO E ZONA DE RISCO */}
+        {}
         <Text style={styles.sectionTitle}>SESSÃO</Text>
 
         <TouchableOpacity

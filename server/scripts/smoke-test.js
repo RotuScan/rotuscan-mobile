@@ -38,8 +38,7 @@ async function gerarImagemRotulo(linhasTexto) {
     .join('\n');
 
   const svg = `
-    <svg width="${largura}" height="${altura}" xmlns="http://www.w3.org/2000/svg">
-      <rect width="100%" height="100%" fill="#FFFFFF"/>
+    <svg width="${largura}" height="${altura}" xmlns="http:      <rect width="100%" height="100%" fill="#FFFFFF"/>
       ${tspans}
     </svg>
   `;

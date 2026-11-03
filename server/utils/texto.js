@@ -1,11 +1,6 @@
-/**
- * Utilitários de texto usados pelo OCR, pela busca e pelo nome automático.
- */
 
-/**
- * Normaliza um texto para comparação: minúsculas, sem acentos (NFD + remoção de \p{M})
- * e espaços colapsados.
- */
+
+
 export function normalizar(texto) {
   return String(texto ?? '')
     .normalize('NFD')
@@ -15,11 +10,7 @@ export function normalizar(texto) {
     .trim();
 }
 
-/**
- * Normalização que PRESERVA o comprimento do texto (caractere a caractere), para que um
- * índice encontrado no texto normalizado aponte para o mesmo trecho no texto original.
- * Pré-condição: `original` já está em NFC e com espaços colapsados.
- */
+
 export function normalizarMantendoIndices(original) {
   let saida = '';
   for (let i = 0; i < original.length; i += 1) {
@@ -30,7 +21,7 @@ export function normalizarMantendoIndices(original) {
   return saida;
 }
 
-/** Escapa caracteres especiais para uso seguro dentro de new RegExp(). */
+
 export function escaparRegex(texto) {
   return String(texto).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

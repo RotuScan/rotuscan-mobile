@@ -8,7 +8,6 @@ if (!MONGO_URI) {
   process.exit(1);
 }
 
-// Suporta argumento numérico direto ou --limit=N (padrão: 20)
 const argLimit = process.argv.find((a) => a.startsWith('--limit='));
 const argPosicional = process.argv.slice(2).find((a) => !a.startsWith('--') && !isNaN(Number(a)));
 const limite = argLimit

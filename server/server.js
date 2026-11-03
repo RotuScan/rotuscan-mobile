@@ -33,11 +33,7 @@ import { extrairTextoDaImagem, analisarTextoRotulo } from './services/ocrAnalyze
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-/**
- * Regra de visibilidade do histórico para o nutricionista:
- * Quando true, o nutricionista vê apenas os escaneamentos realizados pelo paciente
- * a partir do momento do vínculo (createdAt >= paciente.vinculadoEm).
- */
+
 export const FILTRAR_HISTORICO_DESDE_VINCULO = true;
 
 const ALFABETO_CODIGO_VINCULO = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -57,9 +53,6 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// ============================================================================
-// PADRONIZAÇÃO DE ERROS
-// ============================================================================
 
 function responderErro(res, status, mensagem, campos = undefined, extras = {}) {
   const payload = {
@@ -73,13 +66,9 @@ function responderErro(res, status, mensagem, campos = undefined, extras = {}) {
   return res.status(status).json(payload);
 }
 
-// ============================================================================
-// RATE LIMITERS (Login, Cadastro e Verificação de Código de Vínculo)
-// ============================================================================
 
 const limiterVinculo = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
-  max: Number(process.env.VINCULO_RATE_LIMIT_MAX || 10),
+  windowMs: 15 * 60 * 1000,   max: Number(process.env.VINCULO_RATE_LIMIT_MAX || 10),
   standardHeaders: true,
   legacyHeaders: false,
   handler: (_req, res) =>
@@ -91,8 +80,7 @@ const limiterVinculo = rateLimit({
 });
 
 const limiterAuth = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
-  max: Number(process.env.AUTH_RATE_LIMIT_MAX || 40),
+  windowMs: 15 * 60 * 1000,   max: Number(process.env.AUTH_RATE_LIMIT_MAX || 40),
   standardHeaders: true,
   legacyHeaders: false,
   handler: (_req, res) =>
@@ -103,15 +91,11 @@ const limiterAuth = rateLimit({
     ),
 });
 
-// ============================================================================
-// CONFIGURAÇÃO DO MULTER
-// ============================================================================
 
 const upload = multer({
   dest: TMP_UPLOADS_DIR,
   limits: {
-    fileSize: 12 * 1024 * 1024, // 12MB
-  },
+    fileSize: 12 * 1024 * 1024,   },
   fileFilter: (_req, file, cb) => {
     const mime = (file.mimetype || '').toLowerCase();
     const ext = path.extname(file.originalname || '').toLowerCase();
@@ -141,9 +125,6 @@ const upload = multer({
   },
 });
 
-// ============================================================================
-// FUNÇÕES AUXILIARES
-// ============================================================================
 
 export function normalizarCodigoVinculo(raw) {
   if (!raw || typeof raw !== 'string') return '';

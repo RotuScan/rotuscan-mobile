@@ -83,9 +83,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [rascunhoCadastro, setRascunhoCadastro] =
     useState<RascunhoCadastro>(RASCUNHO_VAZIO);
 
-  // Hidrata dados básicos do AsyncStorage ao montar o provider
-  // e migra/apaga de vez chaves legadas (@restricao_gluten, @restricao_lactose, etc.)
-  useEffect(() => {
+      useEffect(() => {
     let ativo = true;
     AsyncStorage.multiGet([
       "@usuario_id",
@@ -110,8 +108,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             restricoes = JSON.parse(map["@usuario_restricoes"]!);
           } catch {}
         } else {
-          // Migração única se apenas chaves legadas existiam no cache
-          if (map["@restricao_gluten"] === "true") restricoes.push("gluten");
+                    if (map["@restricao_gluten"] === "true") restricoes.push("gluten");
           if (map["@restricao_lactose"] === "true") restricoes.push("lactose");
           if (map["@restricao_amendoim"] === "true") restricoes.push("amendoim");
           if (restricoes.length > 0) {
@@ -122,8 +119,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
         }
 
-        // Remove permanentemente chaves legadas para nunca sobreporem o estado real
-        await AsyncStorage.multiRemove([
+                await AsyncStorage.multiRemove([
           "@restricao_gluten",
           "@restricao_lactose",
           "@restricao_amendoim",
@@ -195,8 +191,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       await AsyncStorage.multiSet(pares);
 
-      // Limpa de vez chaves legadas
-      await AsyncStorage.multiRemove([
+            await AsyncStorage.multiRemove([
         "@restricao_gluten",
         "@restricao_lactose",
         "@restricao_amendoim",
@@ -214,9 +209,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
-  /**
-   * Atualiza parcialmente os dados do usuário no contexto e no AsyncStorage em sincronia atômica.
-   */
+  
   const atualizarUsuario = useCallback(
     async (parcial: Partial<UsuarioPublico>) => {
       const pares: [string, string][] = [];
@@ -284,8 +277,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         };
       });
 
-      // Elimina qualquer chave legada
-      await AsyncStorage.multiRemove([
+            await AsyncStorage.multiRemove([
         "@restricao_gluten",
         "@restricao_lactose",
         "@restricao_amendoim",

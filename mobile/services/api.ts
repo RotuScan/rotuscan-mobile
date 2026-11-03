@@ -27,8 +27,7 @@ export async function limparSessaoLocal() {
   try {
     await AsyncStorage.multiRemove(CHAVES_STORAGE);
   } catch {
-    // ignora erro de leitura/remoção local
-  }
+      }
 }
 
 export function extrairMensagemErro(error: any): string {

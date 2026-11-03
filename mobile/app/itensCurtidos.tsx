@@ -99,17 +99,13 @@ export default function ItensCurtidos() {
     [filtro, buscaDebounced]
   );
 
-  // Recarrega sempre ao ganhar foco e ao alterar filtros ou busca
-  useFocusEffect(
+    useFocusEffect(
     useCallback(() => {
       carregarCurtidos(false);
     }, [carregarCurtidos])
   );
 
-  /**
-   * Descurtir com atualização otimista:
-   * Remove da grade e decrementa o contador imediatamente; faz rollback se falhar.
-   */
+  
   const descurtirOtimista = async (produtoAlvo: ProdutoCurtido) => {
     setErroInline(null);
     const snapshotProdutos = [...produtos];

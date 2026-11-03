@@ -140,13 +140,13 @@ export default function LoginScreen() {
       <SafeAreaView style={styles.container}>
         <StatusBar barStyle="dark-content" />
 
-        {/* LOGO */}
+        {}
         <View style={styles.logoContainer}>
           <Text style={styles.logoRotu}>Rotu</Text>
           <Text style={styles.logoScan}>Scan</Text>
         </View>
 
-        {/* CARD DE LOGIN */}
+        {}
         <Animated.View
           style={[
             styles.loginCard,
@@ -160,7 +160,7 @@ export default function LoginScreen() {
             </View>
           ) : null}
 
-          {/* E-MAIL */}
+          {}
           <Text style={styles.label}>E-mail</Text>
           <View
             style={[
@@ -196,7 +196,7 @@ export default function LoginScreen() {
             </View>
           ) : null}
 
-          {/* SENHA */}
+          {}
           <Text style={[styles.label, styles.passwordLabel]}>Senha</Text>
           <View
             style={[
@@ -243,7 +243,7 @@ export default function LoginScreen() {
             </View>
           ) : null}
 
-          {/* ESQUECEU A SENHA */}
+          {}
           <TouchableOpacity
             style={styles.forgotContainer}
             activeOpacity={0.7}
@@ -252,7 +252,7 @@ export default function LoginScreen() {
             <Text style={styles.forgotText}>Esqueceu a senha?</Text>
           </TouchableOpacity>
 
-          {/* BOTÃO ENTRAR */}
+          {}
           <TouchableOpacity
             style={styles.loginButton}
             activeOpacity={0.85}
@@ -266,7 +266,7 @@ export default function LoginScreen() {
             )}
           </TouchableOpacity>
 
-          {/* CADASTRO */}
+          {}
           <View style={styles.registerContainer}>
             <Text style={styles.registerText}>Não tem conta? </Text>
             <TouchableOpacity

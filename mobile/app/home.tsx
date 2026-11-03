@@ -128,8 +128,7 @@ export default function HomeScreen() {
 
         setNutricionista(nutriServidor);
 
-        // Verifica se o nutricionista atualizou as restrições depois da última visualização
-        const atualizadasPor = u?.restricoesAtualizadasPor;
+                const atualizadasPor = u?.restricoesAtualizadasPor;
         const atualizadasEm = u?.restricoesAtualizadasEm;
         if (atualizadasPor === "NUTRICIONISTA" && atualizadasEm) {
           const tsServidor = new Date(atualizadasEm).getTime();
@@ -221,7 +220,7 @@ export default function HomeScreen() {
 
       <AppHeader />
 
-      {/* CONTEÚDO PRINCIPAL */}
+      {}
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -241,10 +240,10 @@ export default function HomeScreen() {
           </View>
         ) : null}
 
-        {/* SAUDAÇÃO */}
+        {}
         <Text style={styles.greeting}>Olá {nomeUsuario}!</Text>
 
-        {/* AVISO DE RESTRIÇÕES ATUALIZADAS PELO NUTRICIONISTA */}
+        {}
         {avisoRestricoesNutri ? (
           <View style={styles.nutriUpdateBanner}>
             <Ionicons name="notifications" size={18} color="#006D37" />
@@ -260,7 +259,7 @@ export default function HomeScreen() {
           </View>
         ) : null}
 
-        {/* ACOMPANHAMENTO NUTRICIONAL OU CONVITE DISCRETO */}
+        {}
         {nutricionista ? (
           <View style={styles.acompanhamentoCard}>
             <View style={styles.acompanhamentoIconBox}>

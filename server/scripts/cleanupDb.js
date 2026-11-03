@@ -25,8 +25,7 @@ async function executarLimpeza() {
     const conn = await mongoose.connect(MONGO_URI);
     const client = conn.connection.client;
 
-    // 1. Inspecionar coleções legadas em RotuScanDB
-    const dbOficial = client.db('RotuScanDB');
+        const dbOficial = client.db('RotuScanDB');
     const existentesOficial = (await dbOficial.listCollections().toArray()).map((c) => c.name);
 
     console.log('Banco oficial: RotuScanDB');
@@ -42,8 +41,7 @@ async function executarLimpeza() {
       }
     }
 
-    // 2. Inspecionar banco duplicado RotuScan
-    const dbDuplicado = client.db('RotuScan');
+        const dbDuplicado = client.db('RotuScan');
     const existentesDuplicado = (await dbDuplicado.listCollections().toArray()).map((c) => c.name);
 
     console.log('\nBanco legado/duplicado: RotuScan');

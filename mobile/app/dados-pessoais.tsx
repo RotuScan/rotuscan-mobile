@@ -53,8 +53,7 @@ export default function DadosPessoaisScreen() {
   const [confirmarSenha, setConfirmarSenha] = useState("");
   const [senhaVisivel, setSenhaVisivel] = useState(false);
 
-  // Erros visuais por campo
-  const [erroNome, setErroNome] = useState<string | null>(null);
+    const [erroNome, setErroNome] = useState<string | null>(null);
   const [erroEmail, setErroEmail] = useState<string | null>(null);
   const [erroSenhaAtual, setErroSenhaAtual] = useState<string | null>(null);
   const [erroNovaSenha, setErroNovaSenha] = useState<string | null>(null);
@@ -254,7 +253,7 @@ export default function DadosPessoaisScreen() {
         ) : null}
 
         <View style={styles.card}>
-          {/* NOME */}
+          {}
           <Text style={styles.label}>Nome Completo</Text>
           <View
             style={[
@@ -282,7 +281,7 @@ export default function DadosPessoaisScreen() {
           </View>
           {erroNome ? <Text style={styles.fieldError}>{erroNome}</Text> : null}
 
-          {/* E-MAIL */}
+          {}
           <Text style={styles.label}>E-mail</Text>
           <View
             style={[
@@ -318,7 +317,7 @@ export default function DadosPessoaisScreen() {
 
           <Text style={styles.sectionSubHeader}>ALTERAR SENHA (OPCIONAL)</Text>
 
-          {/* SENHA ATUAL */}
+          {}
           <Text style={styles.label}>Senha Atual</Text>
           <View
             style={[
@@ -349,7 +348,7 @@ export default function DadosPessoaisScreen() {
             <Text style={styles.fieldError}>{erroSenhaAtual}</Text>
           ) : null}
 
-          {/* NOVA SENHA */}
+          {}
           <Text style={styles.label}>Nova Senha</Text>
           <View
             style={[
@@ -390,7 +389,7 @@ export default function DadosPessoaisScreen() {
             <Text style={styles.fieldError}>{erroNovaSenha}</Text>
           ) : null}
 
-          {/* CONFIRMAR NOVA SENHA */}
+          {}
           <Text style={styles.label}>Confirmar Nova Senha</Text>
           <View
             style={[

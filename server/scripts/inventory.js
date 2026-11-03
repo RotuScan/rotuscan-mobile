@@ -10,8 +10,7 @@ async function runInventory() {
     process.exit(1);
   }
 
-  // Extrai o nome do banco configurado na URI sem expor credenciais
-  const dbMatch = rawUri.match(/\.mongodb\.net\/([^?]*)/);
+    const dbMatch = rawUri.match(/\.mongodb\.net\/([^?]*)/);
   const configuredDb = dbMatch && dbMatch[1] ? dbMatch[1] : '(default/test)';
   console.log('==================================================');
   console.log('INVENTÁRIO SOMENTE-LEITURA — MONGODB ATLAS');

@@ -24,9 +24,7 @@ if (!emailArg) {
 
 function construirItensDemo(userId) {
   const agora = new Date();
-  const hoje1 = new Date(agora.getTime() - 15 * 60 * 1000); // 15 min atrás
-  const hoje2 = new Date(agora.getTime() - 2 * 60 * 60 * 1000); // 2h atrás
-  const ontem1 = new Date(agora.getTime() - 24 * 60 * 60 * 1000 - 30 * 60 * 1000);
+  const hoje1 = new Date(agora.getTime() - 15 * 60 * 1000);   const hoje2 = new Date(agora.getTime() - 2 * 60 * 60 * 1000);   const ontem1 = new Date(agora.getTime() - 24 * 60 * 60 * 1000 - 30 * 60 * 1000);
   const ontem2 = new Date(agora.getTime() - 26 * 60 * 60 * 1000);
   const cincoDias1 = new Date(agora.getTime() - 5 * 24 * 60 * 60 * 1000);
   const cincoDias2 = new Date(agora.getTime() - 5 * 24 * 60 * 60 * 1000 - 2 * 60 * 60 * 1000);
