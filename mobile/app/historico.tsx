@@ -57,8 +57,6 @@ export default function Historico() {
   const [refreshing, setRefreshing] = useState(false);
   const [erroInline, setErroInline] = useState<string | null>(null);
 
-  const focoInicialRef = useRef(false);
-
   // Debounce de 400 ms na busca
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -109,19 +107,10 @@ export default function Historico() {
     [filtro, buscaDebounced]
   );
 
-  // Recarrega quando filtro ou buscaDebounced mudam
-  useEffect(() => {
-    buscarHistorico(1, true, false);
-  }, [buscarHistorico]);
-
-  // Recarrega ao ganhar foco
+  // Recarrega sempre ao ganhar foco e ao alterar filtros ou busca
   useFocusEffect(
     useCallback(() => {
-      if (focoInicialRef.current) {
-        buscarHistorico(1, true, false);
-      } else {
-        focoInicialRef.current = true;
-      }
+      buscarHistorico(1, true, false);
     }, [buscarHistorico])
   );
 
@@ -272,15 +261,19 @@ export default function Historico() {
                 <Text style={styles.dataGrupo}>{grupo.titulo}</Text>
 
                 {grupo.itens.map((item, indice) => {
-                  const seguro = item.veredito === "SEGURO";
+                  const seguro = String(item.veredito).toUpperCase() === "SEGURO";
                   const cor = seguro ? "#00783F" : "#BF2922";
                   const primeiro = indice === 0;
                   const ultimo = indice === grupo.itens.length - 1;
+                  const primeiroAlergico = item.alergicosDetectados?.[0];
                   const catPrincipal =
-                    item.alergicosDetectados?.[0]?.categoria || null;
+                    typeof primeiroAlergico === "string"
+                      ? primeiroAlergico
+                      : primeiroAlergico?.categoria || null;
+                  const itemId = item.id || (item as any)._id;
 
                   return (
-                    <View key={item.id} style={styles.itemTimeline}>
+                    <View key={itemId} style={styles.itemTimeline}>
                       {/* Coluna da linha e bolinha */}
                       <View style={styles.trilho}>
                         {grupo.itens.length > 1 && (

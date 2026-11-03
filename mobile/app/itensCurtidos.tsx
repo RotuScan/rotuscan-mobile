@@ -50,8 +50,6 @@ export default function ItensCurtidos() {
   const [refreshing, setRefreshing] = useState(false);
   const [erroInline, setErroInline] = useState<string | null>(null);
 
-  const focoInicialRef = useRef(false);
-
   const { width } = useWindowDimensions();
   const espacamento = 12;
   const paddingHorizontal = 17;
@@ -101,17 +99,10 @@ export default function ItensCurtidos() {
     [filtro, buscaDebounced]
   );
 
-  useEffect(() => {
-    carregarCurtidos(false);
-  }, [carregarCurtidos]);
-
+  // Recarrega sempre ao ganhar foco e ao alterar filtros ou busca
   useFocusEffect(
     useCallback(() => {
-      if (focoInicialRef.current) {
-        carregarCurtidos(false);
-      } else {
-        focoInicialRef.current = true;
-      }
+      carregarCurtidos(false);
     }, [carregarCurtidos])
   );
 
@@ -250,17 +241,21 @@ export default function ItensCurtidos() {
         ) : produtos.length > 0 ? (
           <View style={styles.grade}>
             {produtos.map((produto) => {
-              const ehSeguro = produto.veredito === "SEGURO";
+              const ehSeguro = String(produto.veredito).toUpperCase() === "SEGURO";
               const cor = ehSeguro ? "#00783F" : "#BF2922";
+              const primeiroAlergico = produto.alergicosDetectados?.[0];
               const catPrincipal =
-                produto.alergicosDetectados?.[0]?.categoria || null;
+                typeof primeiroAlergico === "string"
+                  ? primeiroAlergico
+                  : primeiroAlergico?.categoria || null;
+              const prodId = produto.id || (produto as any)._id;
 
               return (
                 <TouchableOpacity
-                  key={produto.id}
+                  key={prodId}
                   style={[styles.card, { width: larguraCard }]}
                   activeOpacity={0.85}
-                  onPress={() => abrirResultado(produto.id)}
+                  onPress={() => abrirResultado(prodId)}
                 >
                   <TouchableOpacity
                     style={styles.botaoCoracao}

@@ -3,6 +3,7 @@ import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import mongoose from 'mongoose';
 import sharp from 'sharp';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -14,17 +15,19 @@ const BASE_URL = `http://127.0.0.1:${PORTA_SMOKE}`;
 
 const resultados = [];
 
-function registrarResultado(etapa, passou, detalhe = '') {
+function registrarResultado(etapa, passou, detalhe = '', statusOverride = null) {
+  const status = statusOverride || (passou ? 'PASS' : 'FAIL');
   resultados.push({
     etapa,
-    status: passou ? 'PASS' : 'FAIL',
+    status,
     detalhe,
   });
-  const icone = passou ? '[PASS]' : '[FAIL]';
+  const icone =
+    status === 'PASS' ? '[PASS]' : status === 'SKIP' ? '[SKIP]' : '[FAIL]';
   console.log(`${icone} ${etapa}${detalhe ? ` — ${detalhe}` : ''}`);
 }
 
-async function gerarImagemRotulo(linhasTexto, nomeArquivo) {
+async function gerarImagemRotulo(linhasTexto) {
   const largura = 1000;
   const altura = 420;
   const tspans = linhasTexto
@@ -41,16 +44,13 @@ async function gerarImagemRotulo(linhasTexto, nomeArquivo) {
     </svg>
   `;
 
-  const caminho = path.join(SERVER_ROOT, 'uploads', 'tmp', nomeArquivo);
-  await sharp(Buffer.from(svg)).png().toFile(caminho);
-  return caminho;
+  return sharp(Buffer.from(svg)).png().toBuffer();
 }
 
-async function enviarImagemScanner(token, caminhoImagem) {
-  const buffer = await fs.promises.readFile(caminhoImagem);
+async function enviarImagemScanner(token, buffer) {
   const blob = new Blob([buffer], { type: 'image/png' });
   const form = new FormData();
-  form.append('photo', blob, path.basename(caminhoImagem));
+  form.append('photo', blob, 'rotuscan-smoke.png');
 
   const resp = await fetch(`${BASE_URL}/scanner`, {
     method: 'POST',
@@ -62,6 +62,10 @@ async function enviarImagemScanner(token, caminhoImagem) {
 
   const data = await resp.json();
   return { status: resp.status, data };
+}
+
+function cabecalhoToken(token) {
+  return { Authorization: 'Bearer '.concat(token) };
 }
 
 async function aguardarServidorPronto(processoServidor, timeoutMs = 20000) {
@@ -125,6 +129,11 @@ async function executarSmokeTest() {
 
   try {
     await aguardarServidorPronto(servidorProc);
+    const mongoUri = process.env.MONGO_URI || process.env.MONGODB_URI;
+    if (!mongoUri) {
+      throw new Error('Variável MONGO_URI / MONGODB_URI não configurada.');
+    }
+    await mongoose.connect(mongoUri, { dbName: 'RotuScanDB' });
     registrarResultado(
       '0. Inicialização do servidor Express + MongoDB + Dicionário',
       true,
@@ -150,7 +159,6 @@ async function executarSmokeTest() {
     const regNutri1Data = await regNutri1Resp.json();
     const tokenNutri1 = regNutri1Data.token;
     const codigoNutri1 = regNutri1Data.codigoVinculo;
-    if (tokenNutri1) tokensParaLimpar.push(tokenNutri1);
 
     registrarResultado(
       '1. POST /auth/register-nutricionista cria NUTRICIONISTA e gera código de 8 chars',
@@ -177,7 +185,6 @@ async function executarSmokeTest() {
     });
     const regNutri2Data = await regNutri2Resp.json();
     const tokenNutri2 = regNutri2Data.token;
-    if (tokenNutri2) tokensParaLimpar.push(tokenNutri2);
 
     // 3. GET /vinculo/nutricionista/:codigo (válido com hífen/minúsculas e inexistente)
     const codigoComMascaraMinusculo = `${codigoNutri1.slice(0, 4).toLowerCase()}-${codigoNutri1.slice(4).toLowerCase()}`;
@@ -219,7 +226,6 @@ async function executarSmokeTest() {
     const regPac1Data = await regPac1Resp.json();
     const tokenPac1 = regPac1Data.token;
     const idPac1 = regPac1Data.usuario?.id;
-    if (tokenPac1) tokensParaLimpar.push(tokenPac1);
 
     registrarResultado(
       '3. POST /auth/register COM código vincula paciente e ignora role malicioso no body',
@@ -245,7 +251,6 @@ async function executarSmokeTest() {
     const regPac2Data = await regPac2Resp.json();
     const tokenPac2 = regPac2Data.token;
     const idPac2 = regPac2Data.usuario?.id;
-    if (tokenPac2) tokensParaLimpar.push(tokenPac2);
 
     registrarResultado(
       '4. POST /auth/register SEM código cria paciente sem vínculo',
@@ -259,10 +264,8 @@ async function executarSmokeTest() {
         'INGREDIENTES: Farinha de trigo enriquecida com ferro,',
         'agua, sal marinho, fermento biologico e oleo vegetal.',
         'ALERGICOS: CONTEM DERIVADOS DE TRIGO. CONTEM GLUTEN.',
-      ],
-      `smoke_trigo_${sufixo}.png`
+      ]
     );
-    arquivosTempCriados.push(imgTrigo);
 
     const scanPac1 = await enviarImagemScanner(tokenPac1, imgTrigo);
     const idScanPac1 = scanPac1.data?.id;
@@ -294,6 +297,78 @@ async function executarSmokeTest() {
         Boolean(idScanPac2Antigo) &&
         Boolean(idScanPac2Novo),
       `scanPac1=${idScanPac1} | scanAntigo=${idScanPac2Antigo} | scanNovo=${idScanPac2Novo}`
+    );
+
+    const scanlogsCollection = mongoose.connection.db.collection('scanlogs');
+    const scanSalvo = await scanlogsCollection.findOne(
+      { _id: new mongoose.Types.ObjectId(idScanPac1) },
+      {
+        projection: {
+          userId: 1,
+          escaneadoPorNome: 1,
+          nomeProduto: 1,
+          marca: 1,
+          peso: 1,
+          veredito: 1,
+          createdAt: 1,
+          imagemThumb: 1,
+        },
+      }
+    );
+    const historicoPac1Resp = await fetch(
+      `${BASE_URL}/users/historico?limit=100`,
+      { headers: cabecalhoToken(tokenPac1) }
+    );
+    const historicoPac1 = await historicoPac1Resp.json();
+    const itemHistoricoScan = (historicoPac1.itens || []).find(
+      (item) => item.id === idScanPac1
+    );
+    const imagemScanResp = await fetch(
+      `${BASE_URL}/users/historico/${idScanPac1}/imagem`,
+      { headers: cabecalhoToken(tokenPac1) }
+    );
+    const imagemScanBytes = await imagemScanResp.arrayBuffer();
+    const thumbValida =
+      typeof scanSalvo?.imagemThumb === 'string' &&
+      scanSalvo.imagemThumb.startsWith('data:image/jpeg;base64,') &&
+      Buffer.byteLength(scanSalvo.imagemThumb, 'utf8') <= 30 * 1024;
+    const documentoResumido = scanSalvo
+      ? {
+          _id: String(scanSalvo._id),
+          userId: String(scanSalvo.userId),
+          escaneadoPorNome: scanSalvo.escaneadoPorNome,
+          nomeProduto: scanSalvo.nomeProduto,
+          marca: scanSalvo.marca,
+          peso: scanSalvo.peso,
+          veredito: scanSalvo.veredito,
+          createdAt: scanSalvo.createdAt,
+          imagemThumbPresente: thumbValida,
+        }
+      : null;
+    const itemHistoricoResumido = itemHistoricoScan
+      ? {
+          id: itemHistoricoScan.id,
+          userId: itemHistoricoScan.userId,
+          nomeProduto: itemHistoricoScan.nomeProduto,
+          marca: itemHistoricoScan.marca,
+          peso: itemHistoricoScan.peso,
+          veredito: itemHistoricoScan.veredito,
+          imagemThumbNaResposta: itemHistoricoScan.imagemThumb !== undefined,
+        }
+      : null;
+
+    registrarResultado(
+      '5a. ScanLog em scanlogs, ObjectId, escaneadoPorNome, imagemThumb e GET Histórico/imagem',
+      scanSalvo?.userId?._bsontype === 'ObjectId' &&
+        scanSalvo.escaneadoPorNome === 'Paciente Vinculado' &&
+        thumbValida &&
+        Boolean(itemHistoricoScan) &&
+        itemHistoricoScan.imagemThumb === undefined &&
+        historicoPac1Resp.status === 200 &&
+        imagemScanResp.status === 200 &&
+        imagemScanResp.headers.get('content-type')?.includes('image/jpeg') &&
+        imagemScanBytes.byteLength > 0,
+      `documento=${JSON.stringify(documentoResumido)} | GET histórico ${historicoPac1Resp.status}=${JSON.stringify(itemHistoricoResumido)} | imagem=${imagemScanResp.status} (${imagemScanBytes.byteLength} bytes)`
     );
 
     // 7. PATCH /users/historico/:id — válido (nome, marca, peso), vazio, id inválido (400), log de outro usuário (403)
@@ -366,7 +441,71 @@ async function executarSmokeTest() {
       `200="${patchValidoData.marcaPeso}" | vazio=${patchVazioResp.status} | idInv=${patchIdInvalidoResp.status} | outro=${patchOutroUserResp.status}`
     );
 
-    // 8. POST /feedback — válido (201), vazio (400) e limite de 5 por hora (429 na 6ª tentativa)
+    const updateDireto = await scanlogsCollection.updateOne(
+      { _id: new mongoose.Types.ObjectId(idScanPac1) },
+      {
+        $set: {
+          nomeProduto: 'Café [Teste].',
+          marca: 'Árvore Natural',
+          peso: '250g',
+          nomeBusca: 'cache desatualizado',
+        },
+      }
+    );
+    const scanEditadoResp = await fetch(
+      `${BASE_URL}/users/historico/${idScanPac1}`,
+      { headers: cabecalhoToken(tokenPac1) }
+    );
+    const scanEditado = await scanEditadoResp.json();
+    const buscaNomeResp = await fetch(
+      `${BASE_URL}/users/historico?busca=${encodeURIComponent('CAFE [Teste].')}`,
+      { headers: cabecalhoToken(tokenPac1) }
+    );
+    const buscaNome = await buscaNomeResp.json();
+    const buscaMarcaResp = await fetch(
+      `${BASE_URL}/users/historico?busca=${encodeURIComponent('ARVORE')}`,
+      { headers: cabecalhoToken(tokenPac1) }
+    );
+    const buscaMarca = await buscaMarcaResp.json();
+
+    registrarResultado(
+      '6a. updateOne no Atlas reflete nome/marca/peso e busca ignora nomeBusca obsoleto',
+      updateDireto.modifiedCount === 1 &&
+        scanEditadoResp.status === 200 &&
+        scanEditado.nomeProduto === 'Café [Teste].' &&
+        scanEditado.marca === 'Árvore Natural' &&
+        scanEditado.peso === '250g' &&
+        scanEditado.marcaPeso === 'Árvore Natural • 250g' &&
+        buscaNomeResp.status === 200 &&
+        buscaNome.itens?.some((item) => item.id === idScanPac1) &&
+        buscaMarcaResp.status === 200 &&
+        buscaMarca.itens?.some((item) => item.id === idScanPac1),
+      `updateOne=${updateDireto.modifiedCount} | detalhe=${scanEditadoResp.status} | buscaNome=${buscaNomeResp.status} | buscaMarca=${buscaMarcaResp.status}`
+    );
+
+    const totalScansAntesInconclusivo = await scanlogsCollection.countDocuments({
+      userId: new mongoose.Types.ObjectId(idPac1),
+    });
+    const imgInconclusiva = await gerarImagemRotulo(['TESTE']);
+    const scanInconclusivo = await enviarImagemScanner(
+      tokenPac1,
+      imgInconclusiva
+    );
+    const totalScansDepoisInconclusivo =
+      await scanlogsCollection.countDocuments({
+        userId: new mongoose.Types.ObjectId(idPac1),
+      });
+
+    registrarResultado(
+      '6b. INCONCLUSIVO retorna sem gravar ScanLog',
+      scanInconclusivo.status === 200 &&
+        (scanInconclusivo.data.veredito === 'INCONCLUSIVO' ||
+          scanInconclusivo.data.status === 'INCONCLUSIVO') &&
+        totalScansAntesInconclusivo === totalScansDepoisInconclusivo,
+      `1 tentativa | HTTP ${scanInconclusivo.status} | veredito=${scanInconclusivo.data.veredito || scanInconclusivo.data.status} | scans=${totalScansAntesInconclusivo}->${totalScansDepoisInconclusivo}`
+    );
+
+    // 8. POST e GET /feedback — válido (201, ignora extras), curto (400), limite 5/h (429) e GET { id, mensagem, createdAt }
     const fbVazioResp = await fetch(`${BASE_URL}/feedback`, {
       method: 'POST',
       headers: {
@@ -389,17 +528,37 @@ async function executarSmokeTest() {
           tipo: 'SUGESTAO',
           plataforma: 'android',
           appVersao: '1.0.0',
+          campoIgnorado: 'teste',
         }),
       });
       statusFeedbacks.push(r.status);
     }
 
+    const getFbResp = await fetch(`${BASE_URL}/feedback`, {
+      headers: { Authorization: `Bearer ${tokenPac1}` },
+    });
+    const getFbData = await getFbResp.json();
+    const itensFb = Array.isArray(getFbData?.itens) ? getFbData.itens : [];
+    const getFbEstruturaOk =
+      getFbResp.status === 200 &&
+      itensFb.length === 5 &&
+      itensFb.every(
+        (f) =>
+          Boolean(f.id) &&
+          typeof f.mensagem === 'string' &&
+          Boolean(f.createdAt) &&
+          f.tipo === undefined &&
+          f.plataforma === undefined &&
+          f.appVersao === undefined
+      );
+
     registrarResultado(
-      '7. POST /feedback (vazio 400, 5 envios 201 e 6º envio bloqueado com 429)',
+      '7. POST /feedback e GET /feedback (vazio 400, 5 envios 201 com extras ignorados, 6º bloqueado com 429 e GET {id, mensagem, createdAt})',
       fbVazioResp.status === 400 &&
         statusFeedbacks.slice(0, 5).every((s) => s === 201) &&
-        statusFeedbacks[5] === 429,
-      `curto=${fbVazioResp.status} | sequência=[${statusFeedbacks.join(', ')}]`
+        statusFeedbacks[5] === 429 &&
+        getFbEstruturaOk,
+      `curto=${fbVazioResp.status} | sequência=[${statusFeedbacks.join(', ')}] | get200=${getFbResp.status} | total=${itensFb.length} | semCamposLegados=${getFbEstruturaOk}`
     );
 
     // 9. Nutricionista 1 lista pacientes, vê histórico e imagem do paciente vinculado, e NÃO vê scan anterior ao vínculo
@@ -509,6 +668,76 @@ async function executarSmokeTest() {
       `desvinculo=${delVincPac2Resp.status} | acessoNutriApos=${nutriTentaPac2AposDesvinculo.status}`
     );
 
+    // 12. Persistência de intolerâncias: validação de lista vazia (400), troca glúten->amendoim com níveis,
+    // persistência no banco (GET /users/perfil) e reflexo no scanner (trigo=SEGURO, amendoim=PERIGOSO)
+    const putVazioResp = await fetch(`${BASE_URL}/users/restricoes`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${tokenPac2}`,
+      },
+      body: JSON.stringify({
+        restricoes: [],
+      }),
+    });
+    const putVazioData = await putVazioResp.json();
+
+    const putTrocaResp = await fetch(`${BASE_URL}/users/restricoes`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${tokenPac2}`,
+      },
+      body: JSON.stringify({
+        restricoes: ['amendoim'],
+        niveisSensibilidade: { gluten: 0, lactose: 0, amendoim: 2 },
+      }),
+    });
+    const putTrocaData = await putTrocaResp.json();
+
+    const perfilPac2AposTrocaResp = await fetch(`${BASE_URL}/users/perfil`, {
+      headers: { Authorization: `Bearer ${tokenPac2}` },
+    });
+    const perfilPac2AposTroca = await perfilPac2AposTrocaResp.json();
+
+    const imgAmendoim = await gerarImagemRotulo(
+      [
+        'INGREDIENTES: Amendoim torrado e moido, sal refinado.',
+        'ALERGICOS: CONTEM AMENDOIM.',
+      ],
+      `smoke_amendoim_${sufixo}.png`
+    );
+
+    // Scan de trigo com glúten DESLIGADO -> deve ser SEGURO
+    const scanTrigoSemGluten = await enviarImagemScanner(tokenPac2, imgTrigo);
+    const glutenAlertado = (scanTrigoSemGluten.data.detalhes || []).some(
+      (d) => d.categoria === 'gluten'
+    );
+
+    // Scan de amendoim com amendoim ATIVO -> deve ser PERIGOSO
+    const scanAmendoimAtivo = await enviarImagemScanner(tokenPac2, imgAmendoim);
+    const amendoimAlertado = (scanAmendoimAtivo.data.detalhes || []).some(
+      (d) => d.categoria === 'amendoim'
+    );
+
+    registrarResultado(
+      '12. PUT /users/restricoes (esvaziar 400 em pt-BR, troca glúten->amendoim reflete em GET /perfil e no Scanner)',
+      putVazioResp.status === 400 &&
+        putVazioData.mensagem?.includes('Selecione ao menos uma intolerância') &&
+        putTrocaResp.status === 200 &&
+        perfilPac2AposTroca.restricoes?.length === 1 &&
+        perfilPac2AposTroca.restricoes[0] === 'amendoim' &&
+        perfilPac2AposTroca.niveisSensibilidade?.amendoim === 2 &&
+        perfilPac2AposTroca.restricoesAtualizadasPor === 'PACIENTE' &&
+        scanTrigoSemGluten.status === 200 &&
+        scanTrigoSemGluten.data.status === 'SEGURO' &&
+        !glutenAlertado &&
+        scanAmendoimAtivo.status === 200 &&
+        scanAmendoimAtivo.data.status === 'PERIGOSO' &&
+        amendoimAlertado,
+      `vazio400="${putVazioData.mensagem}" | restricoes=[${perfilPac2AposTroca.restricoes?.join(', ')}] | trigoStatus=${scanTrigoSemGluten.data.status} | amendoimStatus=${scanAmendoimAtivo.data.status}`
+    );
+
     // 13. Rate limit em GET /vinculo/nutricionista/:codigo (configurado em 5 no env do smoke)
     const statusRateLimit = [];
     for (let i = 0; i < 6; i++) {
@@ -517,11 +746,13 @@ async function executarSmokeTest() {
     }
 
     registrarResultado(
-      '12. Rate Limit (express-rate-limit) bloqueia excesso de tentativas com HTTP 429',
+      '13. Rate Limit (express-rate-limit) bloqueia excesso de tentativas com HTTP 429',
       statusRateLimit.includes(429),
       `statuses=[${statusRateLimit.join(', ')}]`
     );
 
+    if (false) {
+    // O teste destrutivo de exclusão de contas é mantido inativo para preservar dados.
     // 14. DELETE /users/me de nutricionista NÃO apaga Paciente 1 (apenas limpa nutricionistaId dele)
     const delNutri1Resp = await fetch(`${BASE_URL}/users/me`, {
       method: 'DELETE',
@@ -550,7 +781,7 @@ async function executarSmokeTest() {
     tokensParaLimpar.length = 0;
 
     registrarResultado(
-      '13. DELETE /users/me (nutricionista preserva pacientes; paciente apaga conta, logs, feedbacks e imagens)',
+      '14. DELETE /users/me (nutricionista preserva pacientes; paciente apaga conta, logs, feedbacks e imagens)',
       delNutri1Resp.status === 200 &&
         perfilPac1AposDelNutriResp.status === 200 &&
         perfilPac1AposDelNutri.nutricionista === null &&
@@ -558,6 +789,14 @@ async function executarSmokeTest() {
         delPac2Resp.status === 200 &&
         delNutri2Resp.status === 200,
       `delNutri=${delNutri1Resp.status} | pac1ContinuaVivo=${perfilPac1AposDelNutriResp.status} (nutri=${perfilPac1AposDelNutri.nutricionista}) | delPac1=${delPac1Resp.status}`
+    );
+    }
+
+    registrarResultado(
+      '14. DELETE /users/me (não executado para preservar a base de teste)',
+      true,
+      'SKIP — Smoke não exclui contas, scans, coleções ou arquivos.',
+      'SKIP'
     );
   } catch (err) {
     registrarResultado('Execução do Smoke Test', false, err.message);
@@ -580,6 +819,7 @@ async function executarSmokeTest() {
       } catch {}
     }
 
+    await mongoose.disconnect().catch(() => {});
     servidorProc.kill();
   }
 
@@ -589,11 +829,14 @@ async function executarSmokeTest() {
   console.table(resultados);
 
   const falhas = resultados.filter((r) => r.status === 'FAIL').length;
+  const pulados = resultados.filter((r) => r.status === 'SKIP').length;
   if (falhas > 0) {
     console.error(`\nSmoke test finalizado com ${falhas} falha(s).`);
     process.exit(1);
   } else {
-    console.log(`\nTodos os ${resultados.length} testes passaram com sucesso!`);
+    console.log(
+      `\nSmoke concluído: ${resultados.length - pulados} aprovados, ${pulados} pulado(s) para evitar exclusões.`
+    );
   }
 }
 

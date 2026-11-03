@@ -73,10 +73,14 @@ Na raiz do projeto backend, crie um arquivo chamado:
 
 .env
 
-Adicione a seguinte estrutura:
+### 🔑 Credenciais de avaliação
 
+> **Nota para o professor/avaliador:** Bloco destacado com as credenciais reais de conexão ao MongoDB Atlas:
+
+```env
 MONGODB_URI=mongodb+srv://admin-rotuscan:12RmqRKERjaDuarc@rotuscan-cluster.23cdx3v.mongodb.net/RotuScanDB?retryWrites=true&w=majority
 PORT=3000
+```
 
 Substitua:
 

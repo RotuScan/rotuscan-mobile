@@ -65,13 +65,15 @@ Histórico completo de escaneamentos realizados pelos pacientes (incluindo itens
 |---|---|---|---|---|
 | `_id` | `ObjectId` | Sim | Auto | Identificador único do escaneamento |
 | `userId` | `ObjectId` | Sim (`index`) | — | Referência (`ref: 'User'`) ao dono do escaneamento |
+| `escaneadoPorNome` | `String` | Não | `'Usuário'` | Cópia informativa do nome no momento do scan; `userId` continua sendo a fonte da verdade |
 | `nomeProduto` | `String` | Sim (`maxlength: 80`) | `'Produto Seguro'` | Nome automático (ex: `"Produto com Glúten"`) ou nome editado pelo usuário |
 | `nomeAutomatico` | `Boolean` | Sim | `true` | `true` enquanto for gerado pelo sistema; `false` após renomeação manual |
-| `nomeBusca` | `String` | Sim (`maxlength: 120`) | `''` | Versão normalizada sem acentos e minúscula de `nomeProduto` para busca rápida |
-| `marca` | `String` | Não (`maxlength: 60`) | `''` | Marca informada pelo usuário (ex: `"ElmaChips"`) |
-| `peso` | `String` | Não (`maxlength: 30`) | `''` | Peso/volume informado pelo usuário (ex: `"100g"`) |
-| `marcaPeso` | `String` | Não (`maxlength: 100`) | `''` | String montada automaticamente (`"Marca • Peso"`) mantida por compatibilidade |
-| `imagemUri` | `String \| null` | Não | `null` | Miniatura JPEG comprimida em Base64 (`data:image/jpeg;base64,...`) |
+| `nomeBusca` | `String` | Não (`maxlength: 120`) | `''` | Campo legado/cache opcional; a busca usa `nomeProduto` e `marca` diretamente e ignora valores desatualizados |
+| `marca` | `String \| null` | Não (`maxlength: 60`) | `null` | Marca informada pelo usuário (ex: `"ElmaChips"`) |
+| `peso` | `String \| null` | Não (`maxlength: 30`) | `null` | Peso/volume informado pelo usuário (ex: `"100g"`) |
+| `marcaPeso` | `String` | Não (`maxlength: 100`) | `''` | Compatibilidade; a API monta o valor da resposta a partir de `marca` e `peso` atuais |
+| `imagemThumb` | `String \| null` | Não (`select: false`) | `null` | Miniatura JPEG em data URI (`data:image/jpeg;base64,...`); não é incluída em listagens |
+| `imagemUri` | `String \| null` | Não | `null` | Campo legado para miniatura JPEG/data URI |
 | `imagemArquivo` | `String \| null` | Não | `null` | Caminho relativo em `server/uploads/` (`scans/<userId>/<logId>.jpg`) |
 | `imagemDemo` | `String \| null` | Não | `null` | Nome de arquivo estático de demonstração (quando `seed: true`) |
 | `intoleranciaDetectada` | `Array<String>` | Sim | `[]` | Rótulos legíveis das intolerâncias acionadas (ex: `["Glúten", "Lactose"]`) |
@@ -90,6 +92,58 @@ Histórico completo de escaneamentos realizados pelos pacientes (incluindo itens
 #### Índices de `scanlogs`
 1. `{ userId: 1, createdAt: -1 }` — listagem cronológica do histórico por usuário.
 2. `{ userId: 1, curtido: 1, createdAt: -1 }` — listagem rápida da aba de favoritos ("Itens Curtidos").
+
+#### Edição manual e campos de referência
+- Podem ser editados no Atlas/Compass: `nomeProduto`, `marca` e `peso`. A API lê os valores atuais em cada requisição; `marca`/`peso` ausentes ou `null` são aceitos e a resposta monta `marcaPeso` dinamicamente.
+- `escaneadoPorNome` é apenas uma cópia informativa do nome do usuário no instante do scan. Não deve ser usado para relacionar registros; a fonte da verdade é `userId` (`ObjectId`, referência a `users`).
+- Não edite `userId`, `_id`, `createdAt` ou `updatedAt` manualmente: eles identificam o dono, o registro e a cronologia. `nomeBusca` pode ficar desatualizado e não participa da busca.
+- `imagemThumb` é dado binário codificado (data URI), não um campo de edição manual; sua seleção é explicitamente excluída nas consultas comuns.
+
+#### Identificação do Paciente e Consulta pelo Painel Web
+Cada registro em `scanlogs` armazena a referência `userId` (`ObjectId`, `ref: 'User'`). `escaneadoPorNome` pode ser exibido para leitura rápida no Atlas, mas é somente uma fotografia informativa; consultas e permissões devem usar `userId`. Nomes e e-mails atuais continuam sendo obtidos de `users`.
+
+Para obter o nome, e-mail e dados cadastrais do paciente a partir de `scan.userId`, o painel Web (Next.js / Node.js) deve utilizar uma das abordagens oficiais:
+
+1. **Via Mongoose `populate` (Recomendado no backend/rotas)**:
+   ```javascript
+   const scans = await ScanLog.find(filtro)
+     .sort({ createdAt: -1 })
+     .populate('userId', 'nome email role avatar')
+     .lean();
+   // O objeto retornado terá: scan.userId._id, scan.userId.nome, scan.userId.email
+   ```
+
+2. **Via Pipeline de Agregação MongoDB (`$lookup`)**:
+   ```javascript
+   const scans = await db.collection('scanlogs').aggregate([
+     { $match: filtro },
+     { $sort: { createdAt: -1 } },
+     {
+       $lookup: {
+         from: 'users',
+         localField: 'userId',
+         foreignField: '_id',
+         as: 'paciente',
+       },
+     },
+     { $unwind: { path: '$paciente', preserveNullAndEmptyArrays: true } },
+     {
+       $project: {
+         _id: 1,
+         nomeProduto: 1,
+         veredito: 1,
+         alergicosDetectados: 1,
+         createdAt: 1,
+         curtido: 1,
+         pacienteNome: '$paciente.nome',
+         pacienteEmail: '$paciente.email',
+       },
+     },
+   ]).toArray();
+   ```
+
+3. **Diagnóstico no Terminal (`npm run scans`)**:
+   O script somente leitura `server/scripts/listar-scans.js` (`npm run scans [limite]`) executa a agregação acima no terminal e exibe os últimos scans com os nomes e e-mails resolvidos em tempo real.
 
 ---
 
@@ -110,18 +164,17 @@ Dicionário central de sinônimos, derivados químicos e exceções seguras para
 
 ### 2.4 `feedbacks` (Model `Feedback`)
 
-Sugestões, problemas e elogios enviados pelos usuários do aplicativo.
+Mensagens e feedbacks enviados pelos usuários do aplicativo (simplificado).
 
 | Campo | Tipo | Obrigatório | Padrão | Descrição |
 |---|---|---|---|---|
 | `_id` | `ObjectId` | Sim | Auto | Identificador único |
 | `userId` | `ObjectId` | Sim (`index`) | — | Referência (`ref: 'User'`) ao autor do feedback |
-| `mensagem` | `String` | Sim (`3..1000` chars) | — | Conteúdo enviado (`trim`) |
-| `tipo` | `'SUGESTAO' \| 'PROBLEMA' \| 'ELOGIO' \| 'OUTRO'` | Sim | `'OUTRO'` | Categoria do feedback |
-| `plataforma` | `'android' \| 'ios' \| 'web'` | Sim | `'web'` | Plataforma de origem |
-| `appVersao` | `String` | Não (`maxlength: 30`) | `'1.0.0'` | Versão do aplicativo |
+| `mensagem` | `String` | Sim (`3..1000` chars) | — | Conteúdo textual enviado (`trim`) |
 | `createdAt` | `Date` | Sim | Auto | Data/hora do envio |
 | `updatedAt` | `Date` | Sim | Auto | Data/hora de atualização |
+
+> **Nota de Simplificação**: Os campos legados `tipo`, `plataforma` e `appVersao` foram removidos do schema e das rotas. Documentos legados no banco são limpos via script idempotente `server/scripts/migrate-feedback-clean.js` com `$unset`.
 
 ---
 

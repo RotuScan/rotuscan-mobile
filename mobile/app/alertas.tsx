@@ -63,7 +63,7 @@ const CATEGORIAS: {
 export default function AlertasContaminacaoScreen() {
   const router = useRouter();
   const { width } = useWindowDimensions();
-  const { salvarSessaoUsuario } = useAuth();
+  const { usuarioAtual, atualizarUsuario } = useAuth();
 
   const [fontsLoaded] = useFonts({
     Geist_400Regular,
@@ -118,6 +118,17 @@ export default function AlertasContaminacaoScreen() {
         amendoim: restServidor.includes("amendoim"),
       });
       setNiveis(niveisServidor);
+
+      await atualizarUsuario({
+        id: String(u.id || u._id || usuarioAtual?.id || ""),
+        nome: u.nome || usuarioAtual?.nome || "",
+        email: u.email || usuarioAtual?.email || "",
+        avatar: u.avatar || usuarioAtual?.avatar || null,
+        restricoes: restServidor,
+        niveisSensibilidade: niveisServidor,
+        restricoesAtualizadasEm: u.restricoesAtualizadasEm || null,
+        restricoesAtualizadasPor: u.restricoesAtualizadasPor || null,
+      });
     } catch (err: any) {
       const [restLocal, niveisLocal] = await Promise.all([
         AsyncStorage.getItem("@usuario_restricoes"),
@@ -194,13 +205,16 @@ export default function AlertasContaminacaoScreen() {
       });
       const u = res.data?.usuario || res.data;
 
-      await salvarSessaoUsuario(null, {
-        id: String(u.id || u._id || ""),
-        nome: u.nome || "",
-        email: u.email || "",
-        avatar: u.avatar || null,
+      await atualizarUsuario({
+        id: String(u.id || u._id || usuarioAtual?.id || ""),
+        nome: u.nome || usuarioAtual?.nome || "",
+        email: u.email || usuarioAtual?.email || "",
+        avatar: u.avatar || usuarioAtual?.avatar || null,
         restricoes: u.restricoes || restricoesSelecionadas,
         niveisSensibilidade: u.niveisSensibilidade || niveis,
+        restricoesAtualizadasEm:
+          u.restricoesAtualizadasEm || new Date().toISOString(),
+        restricoesAtualizadasPor: "PACIENTE",
       });
 
       setSucessoInline(

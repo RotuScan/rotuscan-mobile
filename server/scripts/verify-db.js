@@ -2,7 +2,7 @@ import 'dotenv/config';
 import mongoose from 'mongoose';
 import User, { CATEGORIAS, NIVEIS, TRATAMENTOS_VALIDOS } from '../models/User.js';
 import ScanLog from '../models/ScanLog.js';
-import Feedback, { TIPOS_FEEDBACK, PLATAFORMAS_FEEDBACK } from '../models/Feedback.js';
+import Feedback from '../models/Feedback.js';
 
 const MONGO_URI = process.env.MONGO_URI || process.env.MONGODB_URI;
 if (!MONGO_URI) {
@@ -97,15 +97,8 @@ async function verificarBanco() {
     }
   }
 
-  let enumsInvalidosFeedbacks = 0;
-  for (const f of feedbacks) {
-    if (
-      !TIPOS_FEEDBACK.includes(f.tipo) ||
-      (f.plataforma && !PLATAFORMAS_FEEDBACK.includes(f.plataforma))
-    ) {
-      enumsInvalidosFeedbacks++;
-    }
-  }
+  // 4. Enums inválidos em users e scanlogs
+  // (feedbacks não possui mais campos do tipo enum após a simplificação)
 
   // 5. Campos obrigatórios faltando
   const usersCamposFaltando = users.filter(
@@ -144,12 +137,11 @@ async function verificarBanco() {
       Status: codigosDuplicados.length === 0 ? 'OK' : 'ATENÇÃO',
     },
     {
-      Verificacao: '4. Enums inválidos (users / scanlogs / feedbacks)',
-      TotalAnalisado: users.length + scanlogs.length + feedbacks.length,
-      Inconsistencias:
-        enumsInvalidosUsers + enumsInvalidosScans + enumsInvalidosFeedbacks,
+      Verificacao: '4. Enums inválidos (users / scanlogs)',
+      TotalAnalisado: users.length + scanlogs.length,
+      Inconsistencias: enumsInvalidosUsers + enumsInvalidosScans,
       Status:
-        enumsInvalidosUsers + enumsInvalidosScans + enumsInvalidosFeedbacks === 0
+        enumsInvalidosUsers + enumsInvalidosScans === 0
           ? 'OK'
           : 'ATENÇÃO',
     },

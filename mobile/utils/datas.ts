@@ -27,7 +27,7 @@ function chaveDiaLocal(d: Date): string {
 export function formatarGrupoData(dataInput?: string | Date | null): string {
   if (!dataInput) return "Hoje";
   const dt = typeof dataInput === "string" ? new Date(dataInput) : dataInput;
-  if (Number.isNaN(dt.getTime())) return "Hoje";
+  if (!dt || Number.isNaN(dt.getTime())) return "Hoje";
 
   const agora = new Date();
   const ontem = new Date(
@@ -37,10 +37,13 @@ export function formatarGrupoData(dataInput?: string | Date | null): string {
   );
 
   const chaveAlvo = chaveDiaLocal(dt);
-  if (chaveAlvo === chaveDiaLocal(agora)) {
+  const chaveAgora = chaveDiaLocal(agora);
+  const chaveOntem = chaveDiaLocal(ontem);
+
+  if (chaveAlvo === chaveAgora || dt.getTime() > agora.getTime()) {
     return "Hoje";
   }
-  if (chaveAlvo === chaveDiaLocal(ontem)) {
+  if (chaveAlvo === chaveOntem) {
     return "Ontem";
   }
 

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -10,11 +10,11 @@ import {
   Image,
   RefreshControl,
   useWindowDimensions,
+  BackHandler,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Ionicons, Feather } from "@expo/vector-icons";
-import { useRouter, useFocusEffect } from "expo-router";
+import { useRouter, useFocusEffect, usePreventRemove } from "expo-router";
 import {
   Geist_400Regular,
   Geist_500Medium,
@@ -31,6 +31,10 @@ import SensitivitySlider, {
 } from "../components/SensitivitySlider";
 import ConfirmModal from "../components/ConfirmModal";
 import { useAuth, NiveisSensibilidade } from "../context/AuthContext";
+import {
+  CategoriaRestricao,
+  useRestricoesDraft,
+} from "../hooks/useRestricoesDraft";
 
 const iconImages = {
   gluten: require("../assets/images/iconGluten.png"),
@@ -48,7 +52,17 @@ type SnapshotServidor = {
 export default function EditarPerfilScreen() {
   const router = useRouter();
   const { width } = useWindowDimensions();
-  const { salvarSessaoUsuario } = useAuth();
+  const { usuarioAtual, atualizarUsuario } = useAuth();
+  const usuarioAtualRef = useRef(usuarioAtual);
+  const {
+    rascunho,
+    inicializar,
+    alternar,
+    definirNivel,
+    marcarSalvo,
+    descartar,
+    alterado: isDirty,
+  } = useRestricoesDraft();
 
   const [fontsLoaded] = useFonts({
     Geist_400Regular,
@@ -60,14 +74,7 @@ export default function EditarPerfilScreen() {
   const [carregandoInicial, setCarregandoInicial] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [salvando, setSalvando] = useState(false);
-
-  const [glutenAtivo, setGlutenAtivo] = useState(false);
-  const [lactoseAtivo, setLactoseAtivo] = useState(false);
-  const [amendoimAtivo, setAmendoimAtivo] = useState(false);
-
-  const [glutenNivel, setGlutenNivel] = useState<NivelSensibilidade>(1);
-  const [lactoseNivel, setLactoseNivel] = useState<NivelSensibilidade>(1);
-  const [amendoimNivel, setAmendoimNivel] = useState<NivelSensibilidade>(1);
+  const [sliderEmArrasto, setSliderEmArrasto] = useState(false);
 
   const [snapshotServidor, setSnapshotServidor] =
     useState<SnapshotServidor | null>(null);
@@ -75,24 +82,15 @@ export default function EditarPerfilScreen() {
   const [mensagemSucesso, setMensagemSucesso] = useState<string | null>(null);
   const [mensagemErro, setMensagemErro] = useState<string | null>(null);
   const [modalRestaurarVisivel, setModalRestaurarVisivel] = useState(false);
+  const [modalDescartarVisivel, setModalDescartarVisivel] = useState(false);
+  const [sairAposDescarte, setSairAposDescarte] = useState(false);
+  const repetirAcaoPendente = useRef<(() => void) | null>(null);
 
-  const aplicarDadosNoEstado = useCallback((dados: SnapshotServidor) => {
-    const rest = (dados.restricoes || []).map((r) => r.toLowerCase());
-    setGlutenAtivo(rest.includes("gluten"));
-    setLactoseAtivo(rest.includes("lactose"));
-    setAmendoimAtivo(rest.includes("amendoim"));
+  useEffect(() => {
+    usuarioAtualRef.current = usuarioAtual;
+  }, [usuarioAtual]);
 
-    setGlutenNivel(
-      (dados.niveisSensibilidade?.gluten ?? 1) as NivelSensibilidade
-    );
-    setLactoseNivel(
-      (dados.niveisSensibilidade?.lactose ?? 1) as NivelSensibilidade
-    );
-    setAmendoimNivel(
-      (dados.niveisSensibilidade?.amendoim ?? 1) as NivelSensibilidade
-    );
-  }, []);
-
+  // Busca sempre do servidor (fonte única da verdade).
   const carregarDoServidor = useCallback(
     async (isRefresh = false) => {
       if (isRefresh) setRefreshing(true);
@@ -104,7 +102,9 @@ export default function EditarPerfilScreen() {
         const snap: SnapshotServidor = {
           nome: u.nome || "",
           email: u.email || "",
-          restricoes: Array.isArray(u.restricoes) ? u.restricoes : [],
+          restricoes: Array.isArray(u.restricoes)
+            ? u.restricoes.map((r: string) => r.toLowerCase())
+            : [],
           niveisSensibilidade: {
             gluten: (u.niveisSensibilidade?.gluten ?? 1) as 0 | 1 | 2,
             lactose: (u.niveisSensibilidade?.lactose ?? 1) as 0 | 1 | 2,
@@ -112,38 +112,39 @@ export default function EditarPerfilScreen() {
           },
         };
         setSnapshotServidor(snap);
-        aplicarDadosNoEstado(snap);
-        await salvarSessaoUsuario(null, {
-          id: String(u.id || u._id),
+        inicializar(snap.restricoes, snap.niveisSensibilidade);
+
+        // Atualiza contexto e cache local de uma vez
+        await atualizarUsuario({
+          id: String(u.id || u._id || ""),
           nome: snap.nome,
           email: snap.email,
           avatar: u.avatar || null,
           restricoes: snap.restricoes,
           niveisSensibilidade: snap.niveisSensibilidade,
+          nutricionista: u.nutricionista || null,
+          restricoesAtualizadasEm: u.restricoesAtualizadasEm || null,
+          restricoesAtualizadasPor: u.restricoesAtualizadasPor || null,
         });
       } catch (err: any) {
-        const [nomeLocal, emailLocal, restLocal, niveisLocal] =
-          await Promise.all([
-            AsyncStorage.getItem("@usuario_nome"),
-            AsyncStorage.getItem("@usuario_email"),
-            AsyncStorage.getItem("@usuario_restricoes"),
-            AsyncStorage.getItem("@usuario_niveis"),
-          ]);
-
-        const parsedRest: string[] = restLocal ? JSON.parse(restLocal) : [];
-        const parsedNiveis: NiveisSensibilidade = niveisLocal
-          ? JSON.parse(niveisLocal)
-          : { gluten: 1, lactose: 1, amendoim: 1 };
-
-        const snapLocal: SnapshotServidor = {
-          nome: nomeLocal || "",
-          email: emailLocal || "",
-          restricoes: parsedRest,
-          niveisSensibilidade: parsedNiveis,
-        };
-        if (!snapshotServidor) {
-          setSnapshotServidor(snapLocal);
-          aplicarDadosNoEstado(snapLocal);
+        // Fallback offline a partir do contexto
+        const usuarioContexto = usuarioAtualRef.current;
+        if (usuarioContexto) {
+          const snapContexto: SnapshotServidor = {
+            nome: usuarioContexto.nome || "",
+            email: usuarioContexto.email || "",
+            restricoes: usuarioContexto.restricoes || [],
+            niveisSensibilidade: usuarioContexto.niveisSensibilidade || {
+              gluten: 1,
+              lactose: 1,
+              amendoim: 1,
+            },
+          };
+          setSnapshotServidor(snapContexto);
+          inicializar(
+            snapContexto.restricoes,
+            snapContexto.niveisSensibilidade
+          );
         }
         setMensagemErro(extrairMensagemErro(err));
       } finally {
@@ -151,7 +152,7 @@ export default function EditarPerfilScreen() {
         setRefreshing(false);
       }
     },
-    [aplicarDadosNoEstado, salvarSessaoUsuario, snapshotServidor]
+    [atualizarUsuario, inicializar]
   );
 
   useFocusEffect(
@@ -160,42 +161,68 @@ export default function EditarPerfilScreen() {
     }, [carregarDoServidor])
   );
 
+  // Intercepta o botão voltar físico do Android se houver edições não salvas
+  useEffect(() => {
+    const backAction = () => {
+      if (isDirty) {
+        setModalDescartarVisivel(true);
+        return true;
+      }
+      return false;
+    };
+
+    const backHandler = BackHandler.addEventListener(
+      "hardwareBackPress",
+      backAction
+    );
+    return () => backHandler.remove();
+  }, [isDirty]);
+
+  usePreventRemove(isDirty, ({ repeat }) => {
+    repetirAcaoPendente.current = repeat;
+    setModalDescartarVisivel(true);
+  });
+
+  useEffect(() => {
+    if (!sairAposDescarte || isDirty) return;
+    setSairAposDescarte(false);
+    router.back();
+  }, [isDirty, router, sairAposDescarte]);
+
+  const handleToqueVoltar = () => {
+    if (isDirty) {
+      setModalDescartarVisivel(true);
+    } else {
+      router.back();
+    }
+  };
+
   const alternarSwitch = (
-    categoria: "gluten" | "lactose" | "amendoim",
+    categoria: CategoriaRestricao,
     novoEstado: boolean
   ) => {
     setMensagemSucesso(null);
     setMensagemErro(null);
-
-    if (categoria === "gluten") {
-      setGlutenAtivo(novoEstado);
-    } else if (categoria === "lactose") {
-      setLactoseAtivo(novoEstado);
-    } else {
-      setAmendoimAtivo(novoEstado);
-    }
+    alternar(categoria, novoEstado);
   };
 
   const salvarAlteracoes = async () => {
-    if (salvando) return;
+    if (salvando || !isDirty) return;
     setMensagemSucesso(null);
     setMensagemErro(null);
 
     const restricoesSelecionadas: string[] = [];
-    if (glutenAtivo) restricoesSelecionadas.push("gluten");
-    if (lactoseAtivo) restricoesSelecionadas.push("lactose");
-    if (amendoimAtivo) restricoesSelecionadas.push("amendoim");
+    if (rascunho.ativos.gluten) restricoesSelecionadas.push("gluten");
+    if (rascunho.ativos.lactose) restricoesSelecionadas.push("lactose");
+    if (rascunho.ativos.amendoim) restricoesSelecionadas.push("amendoim");
 
+    // Valida apenas no estado FINAL antes do salvamento
     if (restricoesSelecionadas.length === 0) {
-      setMensagemErro("Selecione ao menos uma intolerância.");
+      setMensagemErro("Mantenha ao menos uma intolerância ativa.");
       return;
     }
 
-    const niveisPayload: NiveisSensibilidade = {
-      gluten: glutenNivel,
-      lactose: lactoseNivel,
-      amendoim: amendoimNivel,
-    };
+    const niveisPayload: NiveisSensibilidade = rascunho.niveis;
 
     setSalvando(true);
     try {
@@ -210,27 +237,46 @@ export default function EditarPerfilScreen() {
       const novoSnap: SnapshotServidor = {
         nome: usuarioAtualizado.nome || snapshotServidor?.nome || "",
         email: usuarioAtualizado.email || snapshotServidor?.email || "",
-        restricoes: usuarioAtualizado.restricoes || restricoesSelecionadas,
+        restricoes: (usuarioAtualizado.restricoes || restricoesSelecionadas).map(
+          (r: string) => r.toLowerCase()
+        ),
         niveisSensibilidade:
           usuarioAtualizado.niveisSensibilidade || niveisPayload,
       };
 
       setSnapshotServidor(novoSnap);
 
-      await salvarSessaoUsuario(null, {
+      // Sincroniza AuthContext e AsyncStorage de forma atômica
+      await atualizarUsuario({
         id: String(usuarioAtualizado.id || usuarioAtualizado._id || ""),
         nome: novoSnap.nome,
         email: novoSnap.email,
         avatar: usuarioAtualizado.avatar || null,
         restricoes: novoSnap.restricoes,
         niveisSensibilidade: novoSnap.niveisSensibilidade,
+        restricoesAtualizadasEm:
+          usuarioAtualizado.restricoesAtualizadasEm || new Date().toISOString(),
+        restricoesAtualizadasPor: "PACIENTE",
       });
 
-      setMensagemSucesso("Intolerâncias e sensibilidade salvas com sucesso!");
+      marcarSalvo(novoSnap.restricoes, novoSnap.niveisSensibilidade);
+      setMensagemSucesso("Alterações salvas com sucesso!");
     } catch (err: any) {
       setMensagemErro(extrairMensagemErro(err));
     } finally {
       setSalvando(false);
+    }
+  };
+
+  const confirmarDescarte = () => {
+    setModalDescartarVisivel(false);
+    descartar();
+    const repetirAcao = repetirAcaoPendente.current;
+    repetirAcaoPendente.current = null;
+    if (repetirAcao) {
+      repetirAcao();
+    } else {
+      setSairAposDescarte(true);
     }
   };
 
@@ -239,8 +285,8 @@ export default function EditarPerfilScreen() {
     setMensagemErro(null);
     setMensagemSucesso(null);
     if (snapshotServidor) {
-      aplicarDadosNoEstado(snapshotServidor);
-      setMensagemSucesso("Valores restaurados conforme salvos no servidor.");
+      descartar();
+      setMensagemSucesso("Valores restaurados conforme gravados no servidor.");
     }
   };
 
@@ -263,6 +309,7 @@ export default function EditarPerfilScreen() {
         style={styles.container}
         contentContainerStyle={[styles.scrollContent, { width: cardWidth }]}
         showsVerticalScrollIndicator={false}
+        scrollEnabled={!sliderEmArrasto}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -274,7 +321,7 @@ export default function EditarPerfilScreen() {
       >
         <View style={styles.headerRow}>
           <TouchableOpacity
-            onPress={() => router.back()}
+            onPress={handleToqueVoltar}
             style={styles.backBtn}
             accessibilityRole="button"
             accessibilityLabel="Voltar"
@@ -307,54 +354,65 @@ export default function EditarPerfilScreen() {
           image="gluten"
           title="Glúten"
           description="Filtrar produtos que contenham trigo, centeio, cevada ou derivados para sua segurança celíaca."
-          ativo={glutenAtivo}
+          ativo={rascunho.ativos.gluten}
           onToggle={(v) => alternarSwitch("gluten", v)}
-          nivel={glutenNivel}
+          nivel={rascunho.niveis.gluten}
+          disabled={salvando}
           setNivel={(n) => {
             setMensagemSucesso(null);
-            setGlutenAtivo(true);
-            setGlutenNivel(n);
+            definirNivel("gluten", n);
           }}
+          onGestureActiveChange={setSliderEmArrasto}
         />
 
         <IntoleranciaEditCard
           image="lactose"
           title="Lactose"
           description="Identificar leite, soro de leite e traços de laticínios em alimentos processados e bebidas."
-          ativo={lactoseAtivo}
+          ativo={rascunho.ativos.lactose}
           onToggle={(v) => alternarSwitch("lactose", v)}
-          nivel={lactoseNivel}
+          nivel={rascunho.niveis.lactose}
+          disabled={salvando}
           setNivel={(n) => {
             setMensagemSucesso(null);
-            setLactoseAtivo(true);
-            setLactoseNivel(n);
+            definirNivel("lactose", n);
           }}
+          onGestureActiveChange={setSliderEmArrasto}
         />
 
         <IntoleranciaEditCard
           image="amendoim"
           title="Amendoim"
           description="Monitorar amendoim e seus derivados que podem causar reações de hipersensibilidade alimentar."
-          ativo={amendoimAtivo}
+          ativo={rascunho.ativos.amendoim}
           onToggle={(v) => alternarSwitch("amendoim", v)}
-          nivel={amendoimNivel}
+          nivel={rascunho.niveis.amendoim}
+          disabled={salvando}
           setNivel={(n) => {
             setMensagemSucesso(null);
-            setAmendoimAtivo(true);
-            setAmendoimNivel(n);
+            definirNivel("amendoim", n);
           }}
+          onGestureActiveChange={setSliderEmArrasto}
         />
 
         <TouchableOpacity
-          style={[styles.saveButton, salvando && { opacity: 0.7 }]}
+          style={[
+            styles.saveButton,
+            (!isDirty || salvando) && styles.saveButtonDisabled,
+          ]}
           activeOpacity={0.85}
           onPress={salvarAlteracoes}
-          disabled={salvando}
+          disabled={!isDirty || salvando}
+          accessibilityRole="button"
+          accessibilityLabel="Salvar alterações de intolerâncias"
+          accessibilityState={{ disabled: !isDirty || salvando }}
         >
           {salvando ? (
-            <ActivityIndicator color="#FFFFFF" />
+            <ActivityIndicator color="#FFFFFF" size="small" />
           ) : (
-            <Text style={styles.saveButtonText}>Salvar Alterações</Text>
+            <Text style={styles.saveButtonText}>
+              {isDirty ? "Salvar Alterações" : "Nenhuma alteração pendente"}
+            </Text>
           )}
         </TouchableOpacity>
 
@@ -370,10 +428,25 @@ export default function EditarPerfilScreen() {
 
       <TabBar abaAtiva="perfil" />
 
+      {/* Modal para descartar alterações não salvas */}
+      <ConfirmModal
+        visible={modalDescartarVisivel}
+        title="Descartar alterações?"
+        message="Você possui alterações não salvas. Deseja realmente descartá-las e voltar?"
+        confirmText="Descartar"
+        cancelText="Continuar editando"
+        destructive
+        onConfirm={confirmarDescarte}
+        onCancel={() => {
+          repetirAcaoPendente.current = null;          setModalDescartarVisivel(false);
+        }}
+      />
+
+      {/* Modal para restaurar conforme servidor */}
       <ConfirmModal
         visible={modalRestaurarVisivel}
         title="Restaurar padrões?"
-        message="Deseja descartar as edições não salvas e voltar aos valores gravados no servidor?"
+        message="Deseja descartar as edições e voltar aos valores gravados no servidor?"
         confirmText="Restaurar"
         cancelText="Cancelar"
         onConfirm={confirmarRestaurarPadroes}
@@ -391,6 +464,8 @@ type IntoleranciaEditCardProps = {
   onToggle: (v: boolean) => void;
   nivel: NivelSensibilidade;
   setNivel: (n: NivelSensibilidade) => void;
+  onGestureActiveChange: (active: boolean) => void;
+  disabled: boolean;
 };
 
 function IntoleranciaEditCard({
@@ -401,6 +476,8 @@ function IntoleranciaEditCard({
   onToggle,
   nivel,
   setNivel,
+  onGestureActiveChange,
+  disabled,
 }: IntoleranciaEditCardProps) {
   return (
     <View style={styles.intoleranciaCard}>
@@ -411,6 +488,7 @@ function IntoleranciaEditCard({
 
         <TouchableOpacity
           activeOpacity={0.8}
+          disabled={disabled}
           onPress={() => onToggle(!ativo)}
           style={[styles.switch, ativo && styles.switchActive]}
           accessibilityRole="switch"
@@ -434,8 +512,9 @@ function IntoleranciaEditCard({
       <SensitivitySlider
         nivel={nivel}
         onChangeNivel={setNivel}
-        onRequestActivate={() => onToggle(true)}
         ativo={ativo}
+        readOnly={disabled}
+        onGestureActiveChange={onGestureActiveChange}
       />
     </View>
   );
@@ -587,6 +666,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     elevation: 2,
     marginTop: 4,
+  },
+  saveButtonDisabled: {
+    backgroundColor: "#A3D9B5",
+    elevation: 0,
+    opacity: 0.75,
   },
   saveButtonText: {
     fontFamily: "Geist_700Bold",
