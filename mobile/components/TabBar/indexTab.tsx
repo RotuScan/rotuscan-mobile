@@ -52,7 +52,7 @@ export default function TabBar({ abaAtiva }: Props) {
         { paddingBottom: Math.max(insets.bottom, 8) },
       ]}
     >
-      {/* Início e Histórico */}
+      {}
       {tabs.slice(0, 2).map((tab) => {
         const ativo = abaAtiva === tab.id;
 
@@ -88,7 +88,7 @@ export default function TabBar({ abaAtiva }: Props) {
         );
       })}
 
-      {/* Escanear */}
+      {}
       <View style={styles.scanTab}>
         <TouchableOpacity
           activeOpacity={0.85}
@@ -117,7 +117,7 @@ export default function TabBar({ abaAtiva }: Props) {
         </Text>
       </View>
 
-      {/* Curtidos e Perfil */}
+      {}
       {tabs.slice(2).map((tab) => {
         const ativo = abaAtiva === tab.id;
 
