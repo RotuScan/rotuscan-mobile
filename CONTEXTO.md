@@ -142,13 +142,15 @@ Detalhes em `docs/metodologia-ocr.md`.
 
 ## 10. Estado atual
 - **Pronto e Testado**:
-  - Autenticação completa JWT (Cadastro de Paciente e Nutricionista, Login, Logout).
-  - Vínculo bidirecional Paciente ↔ Nutricionista com código de 8 caracteres e barreira temporal de privacidade (`vinculadoEm`).
+  - Fluxo de vínculo por CRN: consulta pública, solicitação pendente, aprovação/recusa pelo Painel Web no banco compartilhado, cancelamento e desvinculação.
+  - O mobile atualiza o vínculo ao abrir as telas, voltar ao app e, enquanto há solicitação pendente, periodicamente. O vínculo só fica ativo após aprovação, quando `users.nutricionistaId` aponta para `nutricionistas._id`.
+  - Backend validado pelo smoke test CRN (14 verificações, inclusive autenticação, rate limits e recuperação de referências legadas inválidas). O Web não está no workspace; precisa consumir o contrato em `docs/contrato-banco.md`.
   - Histórico de scans e Curtidos com recarregamento reativo no foco (`useFocusEffect`), filtro seguro de `userId` (ObjectId/$in), gravação única via `ScanLog` em `scanlogs`, miniatura JPEG no documento e busca sem depender de `nomeBusca`.
   - Alertas de contaminação cruzada e sensibilidade interativa por níveis (0, 1 e 2).
   - Feedback simplificado: formulário com mensagem (3..1000) e botão de envio; listagem com mensagem e data/hora; schema e rotas sem tipo/plataforma/versão; rate limit de 5/h mantido.
   - Persistência e dirty state na edição de intolerâncias (`editar-perfil.tsx`) com reflexo instantâneo no `AuthContext` e na `Home`.
-  - Smoke test com 17 aprovações; teste destrutivo de exclusão permanece pulado para preservar a base.
+  - Verificação somente-leitura do banco encontrou 2 referências `users.nutricionistaId` sem documento correspondente em `nutricionistas`; nenhum dado real foi alterado. O app permite recuperar a referência ao paciente solicitar outro CRN.
+  - Estrutura observada em 7 `scanlogs`: `imagemUri` e `imagemArquivo` são `null` em 2 e `string` em 5; `imagemThumb` é `string` em 2 e está ausente em 5. Manter esses campos opcionais no Web.
 - **Parcial**:
   - FAQ/Ajuda: telas funcionais, base de perguntas no banco alimentada por seed básico.
 - **Bugs conhecidos / Pontos de atenção**:
@@ -157,6 +159,7 @@ Detalhes em `docs/metodologia-ocr.md`.
 ## 11. Histórico resumido
 | Data | Marco / O que foi feito | Arquivos principais |
 | :--- | :--- | :--- |
+| 2026-11-05 | Migração do vínculo para solicitação por CRN com aprovação Web, atualização das telas mobile, contrato do banco e smoke test. | `server/server.js`, `server/models/SolicitacaoVinculo.js`, `mobile/services/vinculo.ts`, `docs/contrato-banco.md` |
 | 2026-11-01 | Unificação do banco `RotuScanDB`, refatoração de models e scripts de diagnóstico. | `server/server.js`, `server/models/User.js`, `server/models/ScanLog.js` |
 | 2026-11-01 | Implementação do fluxo de vínculo nutricionista ↔ paciente com restrição de escopo temporal. | `server/server.js`, `mobile/app/vincular-nutricionista.tsx` |
 | 2026-11-01 | Pipeline completo de OCR com Tesseract, pré-processamento Sharp e persistência de thumbnails. | `server/services/ocrAnalyzer.js`, `server/services/ocr/extractText.js` |

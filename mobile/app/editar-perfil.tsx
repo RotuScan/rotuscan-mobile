@@ -120,7 +120,6 @@ export default function EditarPerfilScreen() {
           avatar: u.avatar || null,
           restricoes: snap.restricoes,
           niveisSensibilidade: snap.niveisSensibilidade,
-          nutricionista: u.nutricionista || null,
           restricoesAtualizadasEm: u.restricoesAtualizadasEm || null,
           restricoesAtualizadasPor: u.restricoesAtualizadasPor || null,
         });

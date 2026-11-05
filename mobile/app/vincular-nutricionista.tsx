@@ -25,19 +25,26 @@ import { Feather, Ionicons } from "@expo/vector-icons";
 import { router, useLocalSearchParams } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-import api, { extrairMensagemErro } from "../services/api";
-import { useAuth, NutricionistaVinculado } from "../context/AuthContext";
+import { extrairMensagemErro } from "../services/api";
+import { useAuth } from "../context/AuthContext";
 import ConfirmModal from "../components/ConfirmModal";
+import {
+  consultarNutricionistaPorCrn,
+  nomeProfissional,
+  solicitarVinculo,
+} from "../services/vinculo";
+import type { NutricionistaVinculado } from "../services/vinculo";
 
 const { width } = Dimensions.get("window");
 
-function aplicarMascaraCodigo(valor: string): string {
-  const limpo = valor
-    .replace(/[^a-zA-Z0-9]/g, "")
-    .toUpperCase()
-    .slice(0, 8);
-  if (limpo.length <= 4) return limpo;
-  return `${limpo.slice(0, 4)}-${limpo.slice(4, 8)}`;
+function crnValido(valor: string): boolean {
+  const match = valor.match(
+    /^\s*CRN\s*[-/]?\s*(\d{1,2})[\s/-]+(\d+(?:\.\d+)*)\s*$/i
+  );
+  if (!match) return false;
+  const regiao = Number(match[1]);
+  const numero = match[2].replace(/\./g, "");
+  return regiao >= 1 && regiao <= 11 && numero.length >= 3 && numero.length <= 6;
 }
 
 export default function VincularNutricionistaScreen() {
@@ -61,8 +68,8 @@ export default function VincularNutricionistaScreen() {
     Geist_700Bold,
   });
 
-  const [codigoInput, setCodigoInput] = useState(() =>
-    aplicarMascaraCodigo(rascunhoCadastro.codigoNutricionista || "")
+  const [crnInput, setCrnInput] = useState(
+    rascunhoCadastro.crnNutricionista || ""
   );
   const [verificando, setVerificando] = useState(false);
   const [confirmando, setConfirmando] = useState(false);
@@ -75,17 +82,16 @@ export default function VincularNutricionistaScreen() {
     );
   const [modalCancelarVisivel, setModalCancelarVisivel] = useState(false);
 
-  const handleAlterarCodigo = (txt: string) => {
+  const handleAlterarCrn = (txt: string) => {
     if (erroInline) setErroInline(null);
     if (sucessoInline) setSucessoInline(null);
     if (nutriEncontrado) setNutriEncontrado(null);
-    setCodigoInput(aplicarMascaraCodigo(txt));
+    setCrnInput(txt.toUpperCase());
   };
 
-  const verificarCodigo = async () => {
-    const codigoSemHifen = codigoInput.replace(/[^A-Z0-9]/g, "");
-    if (codigoSemHifen.length !== 8) {
-      setErroInline("Digite o código completo de 8 caracteres (ex: ABCD-2345).");
+  const verificarCrn = async () => {
+    if (!crnValido(crnInput)) {
+      setErroInline("CRN inválido. Ex.: CRN-3 12345");
       return;
     }
     if (verificando) return;
@@ -95,13 +101,7 @@ export default function VincularNutricionistaScreen() {
     setSucessoInline(null);
 
     try {
-      const res = await api.get(`/vinculo/nutricionista/${codigoSemHifen}`);
-      const d = res.data;
-      setNutriEncontrado({
-        nome: d.nome,
-        crn: d.crn || "",
-        tratamento: d.tratamento || "Nutri.",
-      });
+      setNutriEncontrado(await consultarNutricionistaPorCrn(crnInput.trim()));
     } catch (err: any) {
       setNutriEncontrado(null);
       setErroInline(extrairMensagemErro(err));
@@ -112,12 +112,11 @@ export default function VincularNutricionistaScreen() {
 
   const confirmarVinculo = async () => {
     if (!nutriEncontrado || confirmando) return;
-    const codigoSemHifen = codigoInput.replace(/[^A-Z0-9]/g, "");
 
     if (modoCadastro) {
       setRascunhoCadastro((prev) => ({
         ...prev,
-        codigoNutricionista: codigoSemHifen,
+        crnNutricionista: nutriEncontrado.crn || crnInput.trim(),
         nutricionistaPreview: nutriEncontrado,
       }));
       router.push("/selectIntolerancia" as never);
@@ -128,25 +127,20 @@ export default function VincularNutricionistaScreen() {
     setConfirmando(true);
     setErroInline(null);
     try {
-      const res = await api.post("/users/vinculo", { codigo: codigoSemHifen });
-      const usuarioAtualizado = res.data?.usuario;
-      const nutriInfo = res.data?.nutricionista || nutriEncontrado;
+      const vinculo = await solicitarVinculo(crnInput.trim());
 
       await AsyncStorage.removeItem("@vinculo_convite_dispensado");
 
-      if (usuarioAtualizado) {
-        await salvarSessaoUsuario(null, {
-          ...usuarioAtualizado,
-          nutricionista: nutriInfo,
-        });
-      } else if (usuarioAtual) {
+      if (usuarioAtual) {
         await salvarSessaoUsuario(null, {
           ...usuarioAtual,
-          nutricionista: nutriInfo,
+          vinculo,
         });
       }
 
-      setSucessoInline("Vínculo com nutricionista confirmado com sucesso!");
+      setSucessoInline(
+        "Solicitação enviada. Aguarde a aprovação do nutricionista."
+      );
       setTimeout(() => {
         router.back();
       }, 900);
@@ -159,22 +153,22 @@ export default function VincularNutricionistaScreen() {
 
   const handleNaoEhEssaPessoa = () => {
     setNutriEncontrado(null);
-    setCodigoInput("");
+    setCrnInput("");
     setErroInline(null);
     if (modoCadastro) {
       setRascunhoCadastro((prev) => ({
         ...prev,
-        codigoNutricionista: undefined,
+        crnNutricionista: undefined,
         nutricionistaPreview: null,
       }));
     }
   };
 
-  const handleNaoTenhoCodigo = () => {
+  const handleNaoTenhoCrn = () => {
     if (modoCadastro) {
       setRascunhoCadastro((prev) => ({
         ...prev,
-        codigoNutricionista: undefined,
+        crnNutricionista: undefined,
         nutricionistaPreview: null,
       }));
       router.push("/selectIntolerancia" as never);
@@ -207,7 +201,7 @@ export default function VincularNutricionistaScreen() {
 
   const cardWidth = Math.min(width - 40, 420);
   const nomeFormatadoNutri = nutriEncontrado
-    ? `${nutriEncontrado.tratamento ? `${nutriEncontrado.tratamento} ` : ""}${nutriEncontrado.nome}`
+    ? nomeProfissional(nutriEncontrado)
     : "";
 
   return (
@@ -246,8 +240,8 @@ export default function VincularNutricionistaScreen() {
             Você acompanha com um nutricionista?
           </Text>
           <Text style={styles.subtitle}>
-            Se o seu nutricionista utiliza o painel RotuScan, digite abaixo o
-            código de 8 caracteres que ele forneceu para conectar seu perfil.
+            Informe o CRN do profissional para consultar os dados e confirmar
+            sua solicitação de vínculo.
           </Text>
 
           {erroInline ? (
@@ -264,32 +258,32 @@ export default function VincularNutricionistaScreen() {
             </View>
           ) : null}
 
-          <Text style={styles.inputLabel}>Código do nutricionista</Text>
+          <Text style={styles.inputLabel}>CRN do nutricionista</Text>
           <View style={styles.inputRow}>
             <TextInput
-              value={codigoInput}
-              onChangeText={handleAlterarCodigo}
-              placeholder="XXXX-XXXX"
+              value={crnInput}
+              onChangeText={handleAlterarCrn}
+              placeholder="Ex.: CRN-3 12345"
               placeholderTextColor="#94A3B8"
               autoCapitalize="characters"
               autoCorrect={false}
-              maxLength={9}
+              maxLength={28}
               style={styles.codeInput}
             />
             <TouchableOpacity
               style={[
                 styles.verifyButton,
-                (verificando || codigoInput.replace(/[^A-Z0-9]/g, "").length < 8) &&
+                (verificando || crnInput.trim().length === 0) &&
                   styles.verifyButtonDisabled,
               ]}
               activeOpacity={0.85}
-              onPress={verificarCodigo}
+              onPress={verificarCrn}
               disabled={verificando}
             >
               {verificando ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
-                <Text style={styles.verifyButtonText}>Verificar código</Text>
+                <Text style={styles.verifyButtonText}>Buscar</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -303,9 +297,7 @@ export default function VincularNutricionistaScreen() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.confirmName}>{nomeFormatadoNutri}</Text>
-                  <Text style={styles.confirmCrn}>
-                    CRN {nutriEncontrado.crn}
-                  </Text>
+                  <Text style={styles.confirmCrn}>{nutriEncontrado.crn}</Text>
                 </View>
                 <View style={styles.verifiedBadge}>
                   <Ionicons name="checkmark-circle" size={14} color="#15803D" />
@@ -314,9 +306,10 @@ export default function VincularNutricionistaScreen() {
               </View>
 
               <Text style={styles.consentText}>
-                Este profissional poderá ver suas restrições e o histórico dos
-                seus escaneamentos a partir de agora. Você pode desvincular
-                quando quiser.
+                Ao solicitar, você autoriza que este profissional veja suas
+                restrições e o histórico dos seus escaneamentos SE ele aprovar
+                o vínculo. Até a aprovação, nada é compartilhado. Você pode
+                desvincular quando quiser.
               </Text>
 
               <TouchableOpacity
@@ -332,7 +325,7 @@ export default function VincularNutricionistaScreen() {
                   <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
                   <Text style={styles.confirmPrimaryText}>
-                    Confirmar vínculo
+                    {modoCadastro ? "Continuar" : "Solicitar vínculo"}
                   </Text>
                 )}
               </TouchableOpacity>
@@ -351,9 +344,9 @@ export default function VincularNutricionistaScreen() {
           <TouchableOpacity
             style={styles.skipButton}
             activeOpacity={0.8}
-            onPress={handleNaoTenhoCodigo}
+            onPress={handleNaoTenhoCrn}
           >
-            <Text style={styles.skipButtonText}>Não tenho código</Text>
+            <Text style={styles.skipButtonText}>Não tenho CRN</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -666,4 +659,3 @@ const styles = StyleSheet.create({
     color: "#006D37",
   },
 });
-

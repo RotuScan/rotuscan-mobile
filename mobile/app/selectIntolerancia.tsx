@@ -147,8 +147,8 @@ export default function IntoleranciasScreen() {
         senha: rascunhoCadastro.senha,
         restricoes: restricoesSelecionadas,
         niveisSensibilidade: rascunho.niveis,
-        ...(rascunhoCadastro.codigoNutricionista
-          ? { codigoNutricionista: rascunhoCadastro.codigoNutricionista }
+        ...(rascunhoCadastro.crnNutricionista
+          ? { crnNutricionista: rascunhoCadastro.crnNutricionista }
           : {}),
       });
 

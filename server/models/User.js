@@ -3,14 +3,6 @@ import mongoose from 'mongoose';
 export const CATEGORIAS = ['gluten', 'lactose', 'amendoim'];
 export const CATEGORIAS_VALIDAS = CATEGORIAS;
 export const NIVEIS = [0, 1, 2]; export const NIVEL_PADRAO = 1;
-export const TRATAMENTOS_VALIDOS = ['Dr.', 'Dra.', 'Nutri.'];
-
-export function formatarCodigoVinculo(codigo) {
-  if (!codigo || typeof codigo !== 'string') return null;
-  const limpo = codigo.replace(/[\s-]+/g, '').toUpperCase();
-  if (limpo.length !== 8) return limpo;
-  return `${limpo.slice(0, 4)}-${limpo.slice(4, 8)}`;
-}
 
 const nivelField = {
   type: Number,
@@ -50,28 +42,10 @@ const userSchema = new mongoose.Schema(
       default: 'PACIENTE',
       required: true,
     },
-    // Campos exclusivos de NUTRICIONISTA
-    crn: {
-      type: String,
-      trim: true,
-      maxlength: 30,
-      default: null,
-    },
-    tratamento: {
-      type: String,
-      enum: [...TRATAMENTOS_VALIDOS, null],
-      default: null,
-    },
-    codigoVinculo: {
-      type: String,
-      trim: true,
-      uppercase: true,
-      maxlength: 16,
-    },
     // Campos de vínculo do PACIENTE com um NUTRICIONISTA
     nutricionistaId: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
+      ref: 'Nutricionista',
       default: null,
       index: true,
     },
@@ -110,8 +84,6 @@ const userSchema = new mongoose.Schema(
   }
 );
 
-userSchema.index({ codigoVinculo: 1 }, { unique: true, sparse: true });
-
 /** Formato público do usuário (nunca inclui senha). */
 userSchema.methods.toPublic = function toPublic() {
   const niveis = this.niveisSensibilidade || {};
@@ -133,13 +105,6 @@ userSchema.methods.toPublic = function toPublic() {
     restricoesAtualizadasEm: this.restricoesAtualizadasEm || null,
     restricoesAtualizadasPor: this.restricoesAtualizadasPor || null,
   };
-
-  if (this.role === 'NUTRICIONISTA') {
-    pub.crn = this.crn || null;
-    pub.tratamento = this.tratamento || null;
-    pub.codigoVinculo = this.codigoVinculo || null;
-    pub.codigoVinculoFormatado = formatarCodigoVinculo(this.codigoVinculo);
-  }
 
   return pub;
 };

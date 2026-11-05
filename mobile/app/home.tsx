@@ -28,8 +28,10 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import TabBar from "../components/TabBar/indexTab";
 import AppHeader from "../components/Header/AppHeader";
 import ScanThumb from "../components/ScanThumb";
+import VinculoCard from "../components/VinculoCard";
 import api, { extrairMensagemErro } from "../services/api";
-import { useAuth, NutricionistaVinculado } from "../context/AuthContext";
+import { useAuth } from "../context/AuthContext";
+import { useVinculoSync } from "../hooks/useVinculoSync";
 import { formatarResumoAlergicos, obterDicaDoDia } from "../utils/datas";
 
 type ItemHistoricoAPI = {
@@ -68,6 +70,13 @@ export default function HomeScreen() {
   });
 
   const { usuarioAtual, atualizarUsuario } = useAuth();
+  const {
+    vinculo,
+    erroInline: erroVinculo,
+    aviso: avisoVinculo,
+    limparAviso: limparAvisoVinculo,
+    sincronizar: sincronizarVinculo,
+  } = useVinculoSync();
 
   const nomeUsuario = usuarioAtual?.nome
     ? usuarioAtual.nome.trim().split(" ")[0]
@@ -88,19 +97,9 @@ export default function HomeScreen() {
 
   const [refreshing, setRefreshing] = useState(false);
   const [erroInline, setErroInline] = useState<string | null>(null);
-  const [nutricionista, setNutricionista] =
-    useState<NutricionistaVinculado | null>(null);
-  const [conviteDispensado, setConviteDispensado] = useState(false);
   const [avisoRestricoesNutri, setAvisoRestricoesNutri] = useState(false);
 
   const dicaDoDia = obterDicaDoDia();
-
-  const dispensarConviteNutri = async () => {
-    setConviteDispensado(true);
-    try {
-      await AsyncStorage.setItem("@vinculo_convite_dispensado", "true");
-    } catch {}
-  };
 
   const carregarTudo = useCallback(
     async (isRefresh = false) => {
@@ -108,12 +107,9 @@ export default function HomeScreen() {
       setErroInline(null);
 
       try {
-        const [conviteDispSalvo, restricoesVistasEmSalvo] = await Promise.all([
-          AsyncStorage.getItem("@vinculo_convite_dispensado"),
-          AsyncStorage.getItem("@restricoes_vistas_em"),
-        ]);
-
-        setConviteDispensado(conviteDispSalvo === "true");
+        const restricoesVistasEmSalvo = await AsyncStorage.getItem(
+          "@restricoes_vistas_em"
+        );
 
         const [resPerfil, resCurtidos, resRecentes] = await Promise.all([
           api.get("/users/perfil"),
@@ -123,10 +119,7 @@ export default function HomeScreen() {
 
         const u = resPerfil.data?.usuario || resPerfil.data;
         const st = resPerfil.data?.stats || {};
-        const nutriServidor: NutricionistaVinculado | null =
-          resPerfil.data?.nutricionista || u?.nutricionista || null;
-
-        setNutricionista(nutriServidor);
+        const vinculoServidor = resPerfil.data?.vinculo || u?.vinculo;
 
                 const atualizadasPor = u?.restricoesAtualizadasPor;
         const atualizadasEm = u?.restricoesAtualizadasEm;
@@ -169,7 +162,7 @@ export default function HomeScreen() {
               lactose: 1,
               amendoim: 1,
             },
-            nutricionista: nutriServidor,
+            vinculo: vinculoServidor,
             restricoesAtualizadasEm: u.restricoesAtualizadasEm || null,
             restricoesAtualizadasPor: u.restricoesAtualizadasPor || null,
           });
@@ -233,15 +226,25 @@ export default function HomeScreen() {
           />
         }
       >
-        {erroInline ? (
+        {erroInline || erroVinculo ? (
           <View style={styles.erroBanner}>
             <Ionicons name="alert-circle" size={16} color="#DC2626" />
-            <Text style={styles.erroBannerText}>{erroInline}</Text>
+            <Text style={styles.erroBannerText}>{erroInline || erroVinculo}</Text>
           </View>
         ) : null}
 
         {}
         <Text style={styles.greeting}>Olá {nomeUsuario}!</Text>
+
+        {avisoVinculo ? (
+          <View style={styles.nutriUpdateBanner}>
+            <Ionicons name="notifications" size={18} color="#006D37" />
+            <Text style={styles.nutriUpdateText}>{avisoVinculo}</Text>
+            <TouchableOpacity onPress={limparAvisoVinculo}>
+              <Feather name="x" size={16} color="#047857" />
+            </TouchableOpacity>
+          </View>
+        ) : null}
 
         {}
         {avisoRestricoesNutri ? (
@@ -260,58 +263,13 @@ export default function HomeScreen() {
         ) : null}
 
         {}
-        {nutricionista ? (
-          <View style={styles.acompanhamentoCard}>
-            <View style={styles.acompanhamentoIconBox}>
-              <Ionicons name="medical" size={18} color="#006D37" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.acompanhamentoLabel}>ACOMPANHAMENTO</Text>
-              <Text style={styles.acompanhamentoText}>
-                Você está acompanhado(a) por{" "}
-                <Text style={styles.acompanhamentoBold}>
-                  {nutricionista.tratamento
-                    ? `${nutricionista.tratamento} `
-                    : ""}
-                  {nutricionista.nome}
-                  {nutricionista.crn ? ` · CRN ${nutricionista.crn}` : ""}
-                </Text>
-              </Text>
-            </View>
-          </View>
-        ) : !conviteDispensado ? (
-          <View style={styles.conviteNutriCard}>
-            <TouchableOpacity
-              style={styles.conviteNutriTouch}
-              activeOpacity={0.8}
-              onPress={() =>
-                router.push("/vincular-nutricionista?modo=perfil" as never)
-              }
-            >
-              <View style={styles.conviteNutriIcon}>
-                <Feather name="user-check" size={16} color="#006D37" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.conviteNutriTitle}>
-                  Tem um código do seu nutricionista?
-                </Text>
-                <Text style={styles.conviteNutriSub}>
-                  Toque para vincular seu acompanhamento nutricional
-                </Text>
-              </View>
-              <Feather name="chevron-right" size={16} color="#006D37" />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.conviteNutriDismiss}
-              onPress={dispensarConviteNutri}
-              accessibilityLabel="Dispensar convite"
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Feather name="x" size={15} color="#64748B" />
-            </TouchableOpacity>
-          </View>
-        ) : null}
+        <VinculoCard
+          vinculo={vinculo}
+          onRefresh={async () => {
+            await sincronizarVinculo();
+            await carregarTudo(true);
+          }}
+        />
 
         {/* INTOLERÂNCIAS */}
         <Text style={styles.sectionLabel}>Suas intolerâncias</Text>
