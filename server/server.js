@@ -9,7 +9,15 @@ import { fileURLToPath } from 'url';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import sharp from 'sharp';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
+import dns from "node:dns";
+
+// DNS alternativo opcional para redes que bloqueiam consultas ao MongoDB Atlas
+if (process.env.DNS_SERVERS) {
+  dns.setServers(
+    process.env.DNS_SERVERS.split(",").map((server) => server.trim())
+  );
+}
 
 import User, {
   CATEGORIAS_VALIDAS,
@@ -82,19 +90,27 @@ const limiterVinculo = rateLimit({
     ),
 });
 
+
 const limiterSolicitacao = rateLimit({
   windowMs: 60 * 60 * 1000,
   limit: 5,
-  keyGenerator: (req) => req.userId || req.ip,
+  keyGenerator: (req) => {
+    if (req.userId) {
+      return `paciente:${req.userId}`;
+    }
+
+    return ipKeyGenerator(req.ip || "0.0.0.0");
+  },
   standardHeaders: true,
   legacyHeaders: false,
   handler: (_req, res) =>
     responderErro(
       res,
       429,
-      'Você atingiu o limite de solicitações. Aguarde uma hora para tentar novamente.'
+      "Você atingiu o limite de solicitações. Aguarde uma hora para tentar novamente."
     ),
 });
+
 
 const limiterAuth = rateLimit({
   windowMs: 15 * 60 * 1000,   max: Number(process.env.AUTH_RATE_LIMIT_MAX || 40),
