@@ -14,12 +14,14 @@ export const CHAVES_STORAGE = [
   "@usuario_email",
   "@usuario_restricoes",
   "@usuario_niveis",
+  "@usuario_vinculo",
   "@usuario_avatar",
   "@restricao_gluten",
   "@restricao_lactose",
   "@restricao_amendoim",
   "@usuario_liberar_tracos",
   "@vinculo_convite_dispensado",
+  "@vinculo_status_visto",
   "@restricoes_vistas_em",
 ];
 

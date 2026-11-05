@@ -5,7 +5,6 @@ import cors from 'cors';
 import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
-import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
@@ -14,9 +13,9 @@ import rateLimit from 'express-rate-limit';
 
 import User, {
   CATEGORIAS_VALIDAS,
-  TRATAMENTOS_VALIDOS,
-  formatarCodigoVinculo,
 } from './models/User.js';
+import Nutricionista from './models/Nutricionista.js';
+import SolicitacaoVinculo from './models/SolicitacaoVinculo.js';
 import AllergenDictionary from './models/AllergenDictionary.js';
 import ScanLog, { montarMarcaPeso } from './models/ScanLog.js';
 import HelpQuestion from './models/HelpQuestion.js';
@@ -27,7 +26,13 @@ import {
   regexInsensivelAcentos,
   emailValido,
 } from './utils/texto.js';
-import { autenticarJWT, exigirNutricionista, JWT_SECRET } from './middleware/auth.js';
+import { parseCrn, normalizarCrn, regexCrn } from './utils/crn.js';
+import {
+  autenticarJWT,
+  exigirNutricionista,
+  exigirPaciente,
+  JWT_SECRET,
+} from './middleware/auth.js';
 import { extrairTextoDaImagem, analisarTextoRotulo } from './services/ocrAnalyzer.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -35,8 +40,6 @@ const __dirname = path.dirname(__filename);
 
 
 export const FILTRAR_HISTORICO_DESDE_VINCULO = true;
-
-const ALFABETO_CODIGO_VINCULO = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 const TMP_UPLOADS_DIR = path.join(UPLOADS_DIR, 'tmp');
@@ -57,7 +60,6 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 function responderErro(res, status, mensagem, campos = undefined, extras = {}) {
   const payload = {
     mensagem,
-    erro: mensagem,
     ...extras,
   };
   if (campos && Object.keys(campos).length > 0) {
@@ -68,14 +70,29 @@ function responderErro(res, status, mensagem, campos = undefined, extras = {}) {
 
 
 const limiterVinculo = rateLimit({
-  windowMs: 15 * 60 * 1000,   max: Number(process.env.VINCULO_RATE_LIMIT_MAX || 10),
+  windowMs: 15 * 60 * 1000,
+  max: 10,
   standardHeaders: true,
   legacyHeaders: false,
   handler: (_req, res) =>
     responderErro(
       res,
       429,
-      'Muitas tentativas de verificação de código. Aguarde alguns minutos antes de tentar novamente.'
+      'Muitas tentativas de consulta. Aguarde alguns minutos antes de tentar novamente.'
+    ),
+});
+
+const limiterSolicitacao = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 5,
+  keyGenerator: (req) => req.userId || req.ip,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (_req, res) =>
+    responderErro(
+      res,
+      429,
+      'Você atingiu o limite de solicitações. Aguarde uma hora para tentar novamente.'
     ),
 });
 
@@ -125,26 +142,6 @@ const upload = multer({
   },
 });
 
-
-export function normalizarCodigoVinculo(raw) {
-  if (!raw || typeof raw !== 'string') return '';
-  return raw.replace(/[\s-]+/g, '').toUpperCase();
-}
-
-export async function gerarCodigoVinculoUnico() {
-  for (let tentativa = 0; tentativa < 15; tentativa++) {
-    let codigo = '';
-    for (let i = 0; i < 8; i++) {
-      const idx = crypto.randomInt(0, ALFABETO_CODIGO_VINCULO.length);
-      codigo += ALFABETO_CODIGO_VINCULO[idx];
-    }
-    const jaExiste = await User.exists({ codigoVinculo: codigo });
-    if (!jaExiste) {
-      return codigo;
-    }
-  }
-  throw new Error('Não foi possível gerar um código de vínculo único.');
-}
 
 function formatarItemHistorico(doc, incluirDetalhes = false) {
   const obj = typeof doc.toObject === 'function' ? doc.toObject() : doc;
@@ -246,23 +243,101 @@ function validarRestricoesENiveis(
   return { restricoes: restricoesLimpas, niveisSensibilidade: niveisLimpos };
 }
 
-async function obterInfoNutricionistaVinculado(userDoc) {
-  if (!userDoc?.nutricionistaId) return null;
-  const nutri = await User.findOne({
-    _id: userDoc.nutricionistaId,
-    role: 'NUTRICIONISTA',
+function formatarNutricionistaVinculo(nutricionista) {
+  if (!nutricionista) return null;
+  return {
+    nome: nutricionista.nome,
+    crn: nutricionista.crn || null,
+    tratamento: nutricionista.tratamento || null,
+  };
+}
+
+async function buscarNutricionistaPorCrn(crn) {
+  const normalizado = normalizarCrn(crn);
+  if (!normalizado) return null;
+
+  const encontrados = await Nutricionista.find({
+    crn: { $regex: regexCrn(normalizado) },
   })
     .select('nome crn tratamento')
     .lean();
 
-  if (!nutri) return null;
+  if (encontrados.length > 1) {
+    console.warn('Mais de um nutricionista encontrado para um CRN normalizado.');
+    return null;
+  }
+  return encontrados[0] || null;
+}
+
+function vinculoVazio() {
+  return {
+    estado: 'NENHUM',
+    nutricionista: null,
+    solicitacaoId: null,
+    vinculadoEm: null,
+    atualizadoEm: null,
+  };
+}
+
+async function obterVinculoPaciente(userDoc) {
+  if (userDoc?.nutricionistaId) {
+    const nutricionista = await Nutricionista.findById(userDoc.nutricionistaId)
+      .select('nome crn tratamento')
+      .lean();
+    if (!nutricionista) {
+      console.warn('Vínculo aponta para nutricionista inexistente.');
+      return vinculoVazio();
+    }
+
+    const solicitacao = await SolicitacaoVinculo.findOne({
+      pacienteId: userDoc._id,
+      nutricionistaId: userDoc.nutricionistaId,
+      status: 'APROVADO',
+    })
+      .sort({ updatedAt: -1 })
+      .select('_id updatedAt')
+      .lean();
+
+    return {
+      estado: 'APROVADO',
+      nutricionista: formatarNutricionistaVinculo(nutricionista),
+      solicitacaoId: solicitacao ? String(solicitacao._id) : null,
+      vinculadoEm: userDoc.vinculadoEm || null,
+      atualizadoEm: solicitacao?.updatedAt || null,
+    };
+  }
+
+  const pendente = await SolicitacaoVinculo.findOne({
+    pacienteId: userDoc._id,
+    status: 'PENDENTE',
+  })
+    .sort({ createdAt: -1 })
+    .select('_id nutricionistaId createdAt updatedAt')
+    .lean();
+  const solicitacao =
+    pendente ||
+    (await SolicitacaoVinculo.findOne({
+      pacienteId: userDoc._id,
+      status: 'RECUSADO',
+    })
+      .sort({ createdAt: -1 })
+      .select('_id nutricionistaId createdAt updatedAt')
+      .lean());
+
+  if (!solicitacao) return vinculoVazio();
+
+  const nutricionista = await Nutricionista.findById(
+    solicitacao.nutricionistaId
+  )
+    .select('nome crn tratamento')
+    .lean();
 
   return {
-    id: String(nutri._id),
-    nome: nutri.nome,
-    crn: nutri.crn || null,
-    tratamento: nutri.tratamento || 'Nutri.',
-    vinculadoEm: userDoc.vinculadoEm || null,
+    estado: pendente ? 'PENDENTE' : 'RECUSADO',
+    nutricionista: formatarNutricionistaVinculo(nutricionista),
+    solicitacaoId: String(solicitacao._id),
+    vinculadoEm: null,
+    atualizadoEm: solicitacao.updatedAt || solicitacao.createdAt || null,
   };
 }
 
@@ -409,7 +484,7 @@ async function handlerRegisterPaciente(req, res) {
       restricoes = [],
       niveisSensibilidade,
       avatar = null,
-      codigoNutricionista,
+      crnNutricionista,
     } = req.body || {};
 
     if (!nome || typeof nome !== 'string' || !nome.trim()) {
@@ -447,25 +522,26 @@ async function handlerRegisterPaciente(req, res) {
       return responderErro(res, 400, validacao.erro);
     }
 
-    let nutricionistaVinculado = null;
+    let nutricionistaSolicitado = null;
     if (
-      codigoNutricionista !== undefined &&
-      codigoNutricionista !== null &&
-      String(codigoNutricionista).trim() !== ''
+      crnNutricionista !== undefined &&
+      crnNutricionista !== null &&
+      String(crnNutricionista).trim() !== ''
     ) {
-      const codigoNorm = normalizarCodigoVinculo(String(codigoNutricionista));
-      if (codigoNorm.length !== 8) {
-        return responderErro(res, 400, 'Código de nutricionista inválido', {
-          codigoNutricionista: 'Código de nutricionista inválido',
-        });
+      if (!parseCrn(String(crnNutricionista))) {
+        return responderErro(
+          res,
+          400,
+          'CRN de nutricionista inválido. Ex.: CRN-3 12345',
+          { crnNutricionista: 'CRN de nutricionista inválido.' }
+        );
       }
-      nutricionistaVinculado = await User.findOne({
-        codigoVinculo: codigoNorm,
-        role: 'NUTRICIONISTA',
-      });
-      if (!nutricionistaVinculado) {
-        return responderErro(res, 400, 'Código de nutricionista inválido', {
-          codigoNutricionista: 'Código de nutricionista inválido',
+      nutricionistaSolicitado = await buscarNutricionistaPorCrn(
+        String(crnNutricionista)
+      );
+      if (!nutricionistaSolicitado) {
+        return responderErro(res, 400, 'CRN de nutricionista inválido', {
+          crnNutricionista: 'CRN de nutricionista inválido.',
         });
       }
     }
@@ -481,22 +557,42 @@ async function handlerRegisterPaciente(req, res) {
     const salt = await bcrypt.genSalt(10);
     const senhaHash = await bcrypt.hash(senha, salt);
     const agora = new Date();
+    const session = await mongoose.startSession();
+    let novoUsuario;
+    try {
+      await session.withTransaction(async () => {
+        [novoUsuario] = await User.create(
+          [{
+            nome: nome.trim(),
+            email: emailNorm,
+            senha: senhaHash,
+            avatar,
+            role: 'PACIENTE',
+            nutricionistaId: null,
+            vinculadoEm: null,
+            consentimentoVinculoEm: nutricionistaSolicitado ? agora : null,
+            restricoes: validacao.restricoes,
+            niveisSensibilidade: validacao.niveisSensibilidade,
+            restricoesAtualizadasEm: agora,
+            restricoesAtualizadasPor: 'PACIENTE',
+          }],
+          { session }
+        );
 
-    // IMPORTANTE: O cadastro pelo app SEMPRE cria role 'PACIENTE', ignorando qualquer role no body
-    const novoUsuario = await User.create({
-      nome: nome.trim(),
-      email: emailNorm,
-      senha: senhaHash,
-      avatar,
-      role: 'PACIENTE',
-      nutricionistaId: nutricionistaVinculado ? nutricionistaVinculado._id : null,
-      vinculadoEm: nutricionistaVinculado ? agora : null,
-      consentimentoVinculoEm: nutricionistaVinculado ? agora : null,
-      restricoes: validacao.restricoes,
-      niveisSensibilidade: validacao.niveisSensibilidade,
-      restricoesAtualizadasEm: agora,
-      restricoesAtualizadasPor: 'PACIENTE',
-    });
+        if (nutricionistaSolicitado) {
+          await SolicitacaoVinculo.create(
+            [{
+              pacienteId: novoUsuario._id,
+              nutricionistaId: nutricionistaSolicitado._id,
+              status: 'PENDENTE',
+            }],
+            { session }
+          );
+        }
+      });
+    } finally {
+      await session.endSession();
+    }
 
     const token = jwt.sign(
       {
@@ -509,15 +605,7 @@ async function handlerRegisterPaciente(req, res) {
     );
 
     const publicUser = novoUsuario.toPublic();
-    const infoNutri = nutricionistaVinculado
-      ? {
-          id: String(nutricionistaVinculado._id),
-          nome: nutricionistaVinculado.nome,
-          crn: nutricionistaVinculado.crn || null,
-          tratamento: nutricionistaVinculado.tratamento || 'Nutri.',
-          vinculadoEm: agora,
-        }
-      : null;
+    const vinculo = await obterVinculoPaciente(novoUsuario);
 
     return res.status(201).json({
       sucesso: true,
@@ -526,9 +614,9 @@ async function handlerRegisterPaciente(req, res) {
       role: 'PACIENTE',
       usuario: {
         ...publicUser,
-        nutricionista: infoNutri,
+        vinculo,
       },
-      nutricionista: infoNutri,
+      vinculo,
     });
   } catch (err) {
     if (err?.code === 11000) {
@@ -544,112 +632,6 @@ async function handlerRegisterPaciente(req, res) {
 app.post('/auth/register', limiterAuth, handlerRegisterPaciente);
 app.post('/api/cadastro', limiterAuth, handlerRegisterPaciente);
 
-app.post('/auth/register-nutricionista', limiterAuth, async (req, res) => {
-  try {
-    const { nome, email, senha, crn, tratamento } = req.body || {};
-
-    if (!nome || typeof nome !== 'string' || !nome.trim()) {
-      return responderErro(res, 400, 'Informe o nome completo do nutricionista.', {
-        nome: 'Informe o nome completo.',
-      });
-    }
-    if (nome.trim().length > 100) {
-      return responderErro(res, 400, 'O nome deve ter no máximo 100 caracteres.', {
-        nome: 'Máximo de 100 caracteres.',
-      });
-    }
-
-    if (!emailValido(email)) {
-      return responderErro(res, 400, 'Informe um endereço de e-mail válido.', {
-        email: 'Informe um endereço de e-mail válido.',
-      });
-    }
-
-    if (!senha || typeof senha !== 'string' || senha.length < 6) {
-      return responderErro(
-        res,
-        400,
-        'A senha deve ter pelo menos 6 caracteres.',
-        { senha: 'A senha deve ter pelo menos 6 caracteres.' }
-      );
-    }
-
-    if (!crn || typeof crn !== 'string' || !crn.trim()) {
-      return responderErro(res, 400, 'Informe o número do CRN.', {
-        crn: 'Informe o número do CRN.',
-      });
-    }
-    if (crn.trim().length > 30) {
-      return responderErro(res, 400, 'O CRN deve ter no máximo 30 caracteres.', {
-        crn: 'Máximo de 30 caracteres.',
-      });
-    }
-
-    let tratamentoFinal = 'Nutri.';
-    if (tratamento !== undefined && tratamento !== null && String(tratamento).trim() !== '') {
-      const tratStr = String(tratamento).trim();
-      if (!TRATAMENTOS_VALIDOS.includes(tratStr)) {
-        return responderErro(
-          res,
-          400,
-          `Tratamento inválido. Valores aceitos: ${TRATAMENTOS_VALIDOS.join(', ')}`,
-          { tratamento: 'Tratamento inválido.' }
-        );
-      }
-      tratamentoFinal = tratStr;
-    }
-
-    const emailNorm = email.trim().toLowerCase();
-    const existente = await User.findOne({ email: emailNorm });
-    if (existente) {
-      return responderErro(res, 409, 'Este e-mail já está cadastrado.', {
-        email: 'Este e-mail já está cadastrado.',
-      });
-    }
-
-    const codigoVinculo = await gerarCodigoVinculoUnico();
-    const senhaHash = await bcrypt.hash(senha, 10);
-
-    const novoNutri = await User.create({
-      nome: nome.trim(),
-      email: emailNorm,
-      senha: senhaHash,
-      role: 'NUTRICIONISTA',
-      crn: crn.trim(),
-      tratamento: tratamentoFinal,
-      codigoVinculo,
-      restricoes: [],
-    });
-
-    const token = jwt.sign(
-      {
-        id: String(novoNutri._id),
-        email: novoNutri.email,
-        role: 'NUTRICIONISTA',
-      },
-      JWT_SECRET,
-      { expiresIn: '30d' }
-    );
-
-    const publicUser = novoNutri.toPublic();
-    return res.status(201).json({
-      sucesso: true,
-      mensagem: 'Nutricionista cadastrado com sucesso!',
-      token,
-      role: 'NUTRICIONISTA',
-      codigoVinculo: novoNutri.codigoVinculo,
-      codigoVinculoFormatado: formatarCodigoVinculo(novoNutri.codigoVinculo),
-      usuario: publicUser,
-    });
-  } catch (err) {
-    if (err?.code === 11000) {
-      return responderErro(res, 409, 'Este e-mail já está cadastrado.');
-    }
-    console.error('Erro em POST /auth/register-nutricionista:', err);
-    return responderErro(res, 500, 'Erro interno ao cadastrar nutricionista.');
-  }
-});
-
 async function handlerLogin(req, res) {
   try {
     const { email, senha } = req.body || {};
@@ -659,6 +641,25 @@ async function handlerLogin(req, res) {
 
     const emailNorm = String(email).trim().toLowerCase();
     let user = await User.findOne({ email: emailNorm }).select('+senha');
+
+    if (!user) {
+      const nutricionista = await Nutricionista.collection.findOne(
+        { email: emailNorm },
+        { projection: { senha: 1 } }
+      );
+      if (
+        nutricionista &&
+        typeof nutricionista.senha === 'string' &&
+        /^\$2[aby]\$/.test(nutricionista.senha) &&
+        await bcrypt.compare(senha, nutricionista.senha)
+      ) {
+        return responderErro(
+          res,
+          403,
+          'Esta conta é de nutricionista. Use o painel web.'
+        );
+      }
+    }
 
     // Fallback transparente caso o usuário ainda esteja apenas na coleção legada `usuarios`
     if (!user && mongoose.connection.readyState === 1) {
@@ -732,10 +733,8 @@ async function handlerLogin(req, res) {
     );
 
     const publicUser = user.toPublic();
-    const infoNutri =
-      roleUsuario === 'PACIENTE'
-        ? await obterInfoNutricionistaVinculado(user)
-        : null;
+    const vinculo =
+      roleUsuario === 'PACIENTE' ? await obterVinculoPaciente(user) : null;
 
     return res.status(200).json({
       sucesso: true,
@@ -744,9 +743,9 @@ async function handlerLogin(req, res) {
       role: roleUsuario,
       usuario: {
         ...publicUser,
-        nutricionista: infoNutri,
+        ...(roleUsuario === 'PACIENTE' ? { vinculo } : {}),
       },
-      nutricionista: infoNutri,
+      ...(roleUsuario === 'PACIENTE' ? { vinculo } : {}),
     });
   } catch (err) {
     console.error('Erro no login:', err);
@@ -761,35 +760,38 @@ async function handlerLogin(req, res) {
 app.post('/auth/login', limiterAuth, handlerLogin);
 app.post('/api/login', limiterAuth, handlerLogin);
 
-// Consulta pública de código de vínculo (para tela de confirmação antes de vincular)
-app.get('/vinculo/nutricionista/:codigo', limiterVinculo, async (req, res) => {
+app.get(
+  '/api/vinculacoes/nutricionista/:crn',
+  limiterVinculo,
+  async (req, res) => {
   try {
-    const codigoNorm = normalizarCodigoVinculo(req.params.codigo);
-    if (!codigoNorm || codigoNorm.length !== 8) {
-      return responderErro(res, 404, 'Código não encontrado');
+    const crn = req.params.crn;
+    if (!parseCrn(crn)) {
+      return responderErro(res, 400, 'CRN inválido. Ex.: CRN-3 12345', {
+        crn: 'CRN inválido. Ex.: CRN-3 12345',
+      });
     }
 
-    const nutri = await User.findOne({
-      codigoVinculo: codigoNorm,
-      role: 'NUTRICIONISTA',
-    })
-      .select('nome crn tratamento codigoVinculo')
-      .lean();
+    const nutri = await buscarNutricionistaPorCrn(crn);
 
     if (!nutri) {
-      return responderErro(res, 404, 'Código não encontrado');
+      return responderErro(res, 404, 'Nutricionista não encontrado');
     }
 
     return res.json({
-      nome: nutri.nome,
-      crn: nutri.crn || '',
-      tratamento: nutri.tratamento || 'Nutri.',
+      nutricionista: {
+        id: String(nutri._id),
+        nome: nutri.nome,
+        crn: nutri.crn,
+        tratamento: nutri.tratamento || null,
+      },
     });
   } catch (err) {
-    console.error('Erro em GET /vinculo/nutricionista/:codigo:', err);
-    return responderErro(res, 500, 'Erro ao consultar código de nutricionista.');
+    console.error('Erro ao consultar CRN de nutricionista:', err);
+    return responderErro(res, 500, 'Erro ao consultar nutricionista.');
   }
-});
+  }
+);
 
 // ============================================================================
 // ROTAS DE PERFIL, RESTRIÇÕES E VÍNCULO DO PACIENTE (JWT)
@@ -802,18 +804,18 @@ app.get('/users/perfil', autenticarJWT, async (req, res) => {
       return responderErro(res, 404, 'Usuário não encontrado.');
     }
 
-    const [stats, nutricionista] = await Promise.all([
+    const [stats, vinculo] = await Promise.all([
       calcularStatsUsuario(user._id),
-      obterInfoNutricionistaVinculado(user),
+      obterVinculoPaciente(user),
     ]);
     const publicUser = user.toPublic();
 
     return res.json({
       ...publicUser,
-      nutricionista,
+      vinculo,
       usuario: {
         ...publicUser,
-        nutricionista,
+        vinculo,
       },
       stats,
     });
@@ -823,88 +825,229 @@ app.get('/users/perfil', autenticarJWT, async (req, res) => {
   }
 });
 
-app.post('/users/vinculo', autenticarJWT, async (req, res) => {
+app.post(
+  '/api/vinculacoes/solicitar',
+  autenticarJWT,
+  exigirPaciente,
+  limiterSolicitacao,
+  async (req, res) => {
   try {
-    const { codigo } = req.body || {};
-    const codigoNorm = normalizarCodigoVinculo(String(codigo || ''));
-    if (!codigoNorm || codigoNorm.length !== 8) {
-      return responderErro(res, 404, 'Código não encontrado', {
-        codigo: 'Código não encontrado',
+    const { crn } = req.body || {};
+    if (!parseCrn(crn)) {
+      return responderErro(res, 400, 'CRN inválido. Ex.: CRN-3 12345', {
+        crn: 'CRN inválido. Ex.: CRN-3 12345',
       });
     }
 
-    const nutri = await User.findOne({
-      codigoVinculo: codigoNorm,
-      role: 'NUTRICIONISTA',
-    });
+    const nutri = await buscarNutricionistaPorCrn(crn);
     if (!nutri) {
-      return responderErro(res, 404, 'Código não encontrado', {
-        codigo: 'Código não encontrado',
-      });
+      return responderErro(res, 404, 'Nutricionista não encontrado');
     }
 
     const user = await User.findById(req.userId);
     if (!user) {
       return responderErro(res, 404, 'Usuário não encontrado.');
+    }
+    if (user.role !== 'PACIENTE') {
+      return responderErro(res, 403, 'Acesso restrito a pacientes.');
+    }
+    const nutricionistaAtual = user.nutricionistaId
+      ? await Nutricionista.exists({ _id: user.nutricionistaId })
+      : null;
+    if (nutricionistaAtual) {
+      return responderErro(
+        res,
+        409,
+        'Você já está vinculado a um nutricionista. Desvincule antes de solicitar outro.'
+      );
+    }
+    if (
+      await SolicitacaoVinculo.exists({
+        pacienteId: user._id,
+        status: 'PENDENTE',
+      })
+    ) {
+      return responderErro(
+        res,
+        409,
+        'Você já tem uma solicitação pendente. Cancele-a para solicitar outro profissional.'
+      );
     }
 
     const agora = new Date();
-    user.nutricionistaId = nutri._id;
-    user.vinculadoEm = agora;
-    user.consentimentoVinculoEm = agora;
-    await user.save();
-
-    const nutricionistaInfo = {
-      id: String(nutri._id),
-      nome: nutri.nome,
-      crn: nutri.crn || null,
-      tratamento: nutri.tratamento || 'Nutri.',
-      vinculadoEm: agora,
-    };
-
-    const publicUser = user.toPublic();
-    return res.json({
-      sucesso: true,
-      mensagem: 'Vínculo com nutricionista confirmado com sucesso!',
-      nutricionista: nutricionistaInfo,
-      usuario: {
-        ...publicUser,
-        nutricionista: nutricionistaInfo,
-      },
-    });
-  } catch (err) {
-    console.error('Erro em POST /users/vinculo:', err);
-    return responderErro(res, 500, 'Erro ao vincular nutricionista.');
-  }
-});
-
-app.delete('/users/vinculo', autenticarJWT, async (req, res) => {
-  try {
-    const user = await User.findById(req.userId);
-    if (!user) {
-      return responderErro(res, 404, 'Usuário não encontrado.');
+    const nutricionistaLegadoId = user.nutricionistaId || null;
+    const session = await mongoose.startSession();
+    try {
+      await session.withTransaction(async () => {
+        await SolicitacaoVinculo.create(
+          [{
+            pacienteId: user._id,
+            nutricionistaId: nutri._id,
+            status: 'PENDENTE',
+          }],
+          { session }
+        );
+        const resultadoAtualizacao = await User.updateOne(
+          { _id: user._id, nutricionistaId: nutricionistaLegadoId },
+          {
+            $set: { consentimentoVinculoEm: agora },
+            ...(nutricionistaLegadoId
+              ? { $unset: { nutricionistaId: '', vinculadoEm: '' } }
+              : {}),
+          },
+          { session }
+        );
+        if (resultadoAtualizacao.matchedCount !== 1) {
+          const erro = new Error('O vínculo do paciente foi alterado.');
+          erro.code = 'VINCULO_ATUALIZADO';
+          throw erro;
+        }
+      });
+    } finally {
+      await session.endSession();
     }
 
-    user.nutricionistaId = null;
-    user.vinculadoEm = null;
-    user.consentimentoVinculoEm = null;
-    await user.save();
-
-    const publicUser = user.toPublic();
-    return res.json({
+    const usuarioAtualizado = await User.findById(user._id);
+    return res.status(201).json({
       sucesso: true,
-      mensagem: 'Vínculo com nutricionista removido com sucesso.',
-      nutricionista: null,
-      usuario: {
-        ...publicUser,
-        nutricionista: null,
-      },
+      mensagem: 'Solicitação enviada. Aguarde a aprovação do nutricionista.',
+      vinculo: await obterVinculoPaciente(usuarioAtualizado),
     });
   } catch (err) {
-    console.error('Erro em DELETE /users/vinculo:', err);
-    return responderErro(res, 500, 'Erro ao desvincular nutricionista.');
+    if (err?.code === 11000) {
+      return responderErro(
+        res,
+        409,
+        'Você já tem uma solicitação pendente. Cancele-a para solicitar outro profissional.'
+      );
+    }
+    if (err?.code === 'VINCULO_ATUALIZADO') {
+      return responderErro(
+        res,
+        409,
+        'O estado do seu vínculo foi alterado. Atualize o perfil e tente novamente.'
+      );
+    }
+    console.error('Erro ao criar solicitação de vínculo:', err);
+    return responderErro(res, 500, 'Erro ao solicitar vínculo.');
   }
-});
+  }
+);
+
+app.get(
+  '/api/vinculacoes/minha-solicitacao',
+  autenticarJWT,
+  exigirPaciente,
+  async (req, res) => {
+    try {
+      const user = await User.findById(req.userId);
+      if (!user) return responderErro(res, 404, 'Usuário não encontrado.');
+      return res.json({ vinculo: await obterVinculoPaciente(user) });
+    } catch (err) {
+      console.error('Erro ao consultar solicitação de vínculo:', err);
+      return responderErro(res, 500, 'Erro ao consultar solicitação.');
+    }
+  }
+);
+
+app.delete(
+  '/api/vinculacoes/minha-solicitacao',
+  autenticarJWT,
+  exigirPaciente,
+  async (req, res) => {
+    try {
+      const solicitacao = await SolicitacaoVinculo.findOneAndUpdate(
+        { pacienteId: req.userId, status: 'PENDENTE' },
+        {
+          $set: {
+            status: 'RECUSADO',
+            encerradaEm: new Date(),
+            encerradaPor: 'PACIENTE',
+          },
+        },
+        { new: true }
+      );
+      if (!solicitacao) {
+        return responderErro(res, 404, 'Não há solicitação pendente para cancelar.');
+      }
+
+      const user = await User.findById(req.userId);
+      return res.json({
+        sucesso: true,
+        mensagem: 'Solicitação cancelada.',
+        vinculo: user ? await obterVinculoPaciente(user) : vinculoVazio(),
+      });
+    } catch (err) {
+      console.error('Erro ao cancelar solicitação de vínculo:', err);
+      return responderErro(res, 500, 'Erro ao cancelar solicitação.');
+    }
+  }
+);
+
+app.delete(
+  '/users/vinculo',
+  autenticarJWT,
+  exigirPaciente,
+  async (req, res) => {
+    const session = await mongoose.startSession();
+    try {
+      let resultado = 'ok';
+      await session.withTransaction(async () => {
+        const user = await User.findById(req.userId).session(session);
+        if (!user) {
+          resultado = 'usuario-inexistente';
+          return;
+        }
+        if (!user.nutricionistaId) {
+          resultado = 'sem-vinculo';
+          return;
+        }
+
+        const nutricionistaId = user.nutricionistaId;
+        const agora = new Date();
+        await User.updateOne(
+          { _id: user._id, nutricionistaId },
+          { $unset: { nutricionistaId: '', vinculadoEm: '' } },
+          { session }
+        );
+        await SolicitacaoVinculo.updateOne(
+          {
+            pacienteId: user._id,
+            nutricionistaId,
+            status: 'APROVADO',
+            encerradaEm: null,
+          },
+          {
+            $set: {
+              encerradaEm: agora,
+              encerradaPor: 'PACIENTE',
+            },
+          },
+          { session }
+        );
+      });
+
+      if (resultado === 'usuario-inexistente') {
+        return responderErro(res, 404, 'Usuário não encontrado.');
+      }
+      if (resultado === 'sem-vinculo') {
+        return responderErro(res, 404, 'Você não tem vínculo ativo.');
+      }
+
+      const user = await User.findById(req.userId);
+      return res.json({
+        sucesso: true,
+        mensagem: 'Vínculo removido com sucesso.',
+        vinculo: user ? await obterVinculoPaciente(user) : vinculoVazio(),
+      });
+    } catch (err) {
+      console.error('Erro ao desvincular nutricionista:', err);
+      return responderErro(res, 500, 'Erro ao desvincular nutricionista.');
+    } finally {
+      await session.endSession();
+    }
+  }
+);
 
 app.put('/users/restricoes', autenticarJWT, async (req, res) => {
   try {
@@ -1063,16 +1206,16 @@ async function handlerAtualizarPerfil(req, res) {
 
     await user.save();
     const publicUser = user.toPublic();
-    const nutricionista = await obterInfoNutricionistaVinculado(user);
+    const vinculo = await obterVinculoPaciente(user);
 
     return res.json({
       sucesso: true,
       mensagem: 'Perfil atualizado com sucesso!',
       ...publicUser,
-      nutricionista,
+      vinculo,
       usuario: {
         ...publicUser,
-        nutricionista,
+        vinculo,
       },
     });
   } catch (err) {
@@ -1241,11 +1384,6 @@ async function obterPacienteVinculado(req, res) {
 app.get('/nutri/perfil', autenticarJWT, exigirNutricionista, async (req, res) => {
   try {
     const nutri = req.nutricionista;
-    if (!nutri.codigoVinculo) {
-      nutri.codigoVinculo = await gerarCodigoVinculoUnico();
-      await nutri.save();
-    }
-
     const totalPacientes = await User.countDocuments({
       nutricionistaId: nutri._id,
       role: 'PACIENTE',
@@ -1254,8 +1392,6 @@ app.get('/nutri/perfil', autenticarJWT, exigirNutricionista, async (req, res) =>
     const pub = nutri.toPublic();
     return res.json({
       ...pub,
-      codigoVinculo: nutri.codigoVinculo,
-      codigoVinculoFormatado: formatarCodigoVinculo(nutri.codigoVinculo),
       totalPacientes,
       usuario: pub,
     });
@@ -1264,31 +1400,6 @@ app.get('/nutri/perfil', autenticarJWT, exigirNutricionista, async (req, res) =>
     return responderErro(res, 500, 'Erro ao carregar perfil do nutricionista.');
   }
 });
-
-app.post(
-  '/nutri/codigo/regenerar',
-  autenticarJWT,
-  exigirNutricionista,
-  async (req, res) => {
-    try {
-      const nutri = req.nutricionista;
-      const novoCodigo = await gerarCodigoVinculoUnico();
-      nutri.codigoVinculo = novoCodigo;
-      await nutri.save();
-
-      return res.json({
-        sucesso: true,
-        mensagem:
-          'Novo código gerado com sucesso! Os pacientes já vinculados permanecem ativos.',
-        codigoVinculo: novoCodigo,
-        codigoVinculoFormatado: formatarCodigoVinculo(novoCodigo),
-      });
-    } catch (err) {
-      console.error('Erro em POST /nutri/codigo/regenerar:', err);
-      return responderErro(res, 500, 'Erro ao regenerar código de vínculo.');
-    }
-  }
-);
 
 app.get(
   '/nutri/pacientes',
@@ -2431,10 +2542,6 @@ async function sincronizarUsuariosLegados() {
         u.role = 'PACIENTE';
         mudou = true;
       }
-      if (u.role === 'NUTRICIONISTA' && !u.codigoVinculo) {
-        u.codigoVinculo = await gerarCodigoVinculoUnico();
-        mudou = true;
-      }
       if (u.avatar === undefined) {
         u.avatar = null;
         mudou = true;
@@ -2540,8 +2647,10 @@ mongoose
   .connect(MONGO_URI, { dbName: 'RotuScanDB' })
   .then(async () => {
     console.log('Conectado ao MongoDB Atlas (RotuScanDB) com sucesso.');
-    await inicializarDicionarioPadrao();
-    await sincronizarUsuariosLegados();
+    if (process.env.SMOKE_TEST !== 'true') {
+      await inicializarDicionarioPadrao();
+      await sincronizarUsuariosLegados();
+    }
 
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`Servidor rodando na porta ${PORT}`);

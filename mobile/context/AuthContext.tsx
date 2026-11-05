@@ -6,20 +6,16 @@ import React, {
   useEffect,
 } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { limparSessaoLocal } from "../services/api";
+import api, { limparSessaoLocal } from "../services/api";
+import { VINCULO_VAZIO } from "../services/vinculo";
+import type { NutricionistaVinculado, Vinculo } from "../services/vinculo";
+
+export type { NutricionistaVinculado, Vinculo } from "../services/vinculo";
 
 export type NiveisSensibilidade = {
   gluten: 0 | 1 | 2;
   lactose: 0 | 1 | 2;
   amendoim: 0 | 1 | 2;
-};
-
-export type NutricionistaVinculado = {
-  id?: string;
-  nome: string;
-  crn: string | null;
-  tratamento: "Dr." | "Dra." | "Nutri." | string | null;
-  vinculadoEm?: string | null;
 };
 
 export type UsuarioPublico = {
@@ -30,7 +26,7 @@ export type UsuarioPublico = {
   role?: "PACIENTE" | "NUTRICIONISTA";
   restricoes: string[];
   niveisSensibilidade: NiveisSensibilidade;
-  nutricionista?: NutricionistaVinculado | null;
+  vinculo?: Vinculo;
   restricoesAtualizadasEm?: string | null;
   restricoesAtualizadasPor?: "PACIENTE" | "NUTRICIONISTA" | null;
 };
@@ -40,7 +36,7 @@ export type RascunhoCadastro = {
   email: string;
   senha: string;
   repetirSenha: string;
-  codigoNutricionista?: string;
+  crnNutricionista?: string;
   nutricionistaPreview?: NutricionistaVinculado | null;
 };
 
@@ -63,7 +59,7 @@ const RASCUNHO_VAZIO: RascunhoCadastro = {
   email: "",
   senha: "",
   repetirSenha: "",
-  codigoNutricionista: undefined,
+  crnNutricionista: undefined,
   nutricionistaPreview: null,
 };
 
@@ -83,7 +79,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [rascunhoCadastro, setRascunhoCadastro] =
     useState<RascunhoCadastro>(RASCUNHO_VAZIO);
 
-      useEffect(() => {
+  useEffect(() => {
     let ativo = true;
     AsyncStorage.multiGet([
       "@usuario_id",
@@ -92,6 +88,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       "@usuario_avatar",
       "@usuario_restricoes",
       "@usuario_niveis",
+      "@usuario_vinculo",
+      "@rotuscan_token",
       "@restricao_gluten",
       "@restricao_lactose",
       "@restricao_amendoim",
@@ -106,9 +104,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (map["@usuario_restricoes"]) {
           try {
             restricoes = JSON.parse(map["@usuario_restricoes"]!);
-          } catch {}
+          } catch {
+            console.warn("Não foi possível restaurar as restrições locais.");
+          }
         } else {
-                    if (map["@restricao_gluten"] === "true") restricoes.push("gluten");
+          if (map["@restricao_gluten"] === "true") restricoes.push("gluten");
           if (map["@restricao_lactose"] === "true") restricoes.push("lactose");
           if (map["@restricao_amendoim"] === "true") restricoes.push("amendoim");
           if (restricoes.length > 0) {
@@ -119,12 +119,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
         }
 
-                await AsyncStorage.multiRemove([
+        await AsyncStorage.multiRemove([
           "@restricao_gluten",
           "@restricao_lactose",
           "@restricao_amendoim",
           "@usuario_liberar_tracos",
-        ]).catch(() => {});
+        ]).catch((error: unknown) => {
+          console.warn("Não foi possível remover as preferências legadas.", error);
+        });
 
         let niveis: NiveisSensibilidade = {
           gluten: 1,
@@ -135,7 +137,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (map["@usuario_niveis"]) {
             niveis = JSON.parse(map["@usuario_niveis"]!);
           }
-        } catch {}
+        } catch {
+          console.warn("Não foi possível restaurar os níveis locais.");
+        }
+
+        let vinculo = VINCULO_VAZIO;
+        try {
+          if (map["@usuario_vinculo"]) {
+            vinculo = JSON.parse(map["@usuario_vinculo"]!) as Vinculo;
+          }
+        } catch {
+          console.warn("Não foi possível restaurar o vínculo salvo localmente.");
+        }
 
         setUsuarioAtual({
           id,
@@ -144,9 +157,54 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           avatar: map["@usuario_avatar"] || null,
           restricoes,
           niveisSensibilidade: niveis,
+          vinculo,
         });
+
+        if (map["@rotuscan_token"]) {
+          try {
+            const response = await api.get("/users/perfil");
+            if (!ativo) return;
+            const perfil = response.data?.usuario || response.data;
+            const niveisServidor = perfil.niveisSensibilidade || niveis;
+            const vinculoServidor =
+              response.data?.vinculo || perfil.vinculo || VINCULO_VAZIO;
+            const sessaoAtualizada: UsuarioPublico = {
+              id: String(perfil.id || perfil._id || id),
+              nome: perfil.nome || map["@usuario_nome"] || "Usuário",
+              email: perfil.email || map["@usuario_email"] || "",
+              avatar: perfil.avatar || map["@usuario_avatar"] || null,
+              role: perfil.role || "PACIENTE",
+              restricoes: Array.isArray(perfil.restricoes)
+                ? perfil.restricoes
+                : restricoes,
+              niveisSensibilidade: niveisServidor,
+              vinculo: vinculoServidor,
+              restricoesAtualizadasEm: perfil.restricoesAtualizadasEm || null,
+              restricoesAtualizadasPor: perfil.restricoesAtualizadasPor || null,
+            };
+            await AsyncStorage.multiSet([
+              ["@usuario_id", sessaoAtualizada.id],
+              ["@usuario_nome", sessaoAtualizada.nome],
+              ["@usuario_email", sessaoAtualizada.email],
+              [
+                "@usuario_restricoes",
+                JSON.stringify(sessaoAtualizada.restricoes),
+              ],
+              [
+                "@usuario_niveis",
+                JSON.stringify(sessaoAtualizada.niveisSensibilidade),
+              ],
+              ["@usuario_vinculo", JSON.stringify(vinculoServidor)],
+            ]);
+            setUsuarioAtual(sessaoAtualizada);
+          } catch {
+            console.warn("Não foi possível atualizar o perfil salvo no servidor.");
+          }
+        }
       })
-      .catch(() => {});
+      .catch(() => {
+        console.warn("Não foi possível restaurar a sessão local.");
+      });
 
     return () => {
       ativo = false;
@@ -180,6 +238,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         ["@usuario_email", String(usuario.email || "")],
         ["@usuario_restricoes", JSON.stringify(restricoesArray)],
         ["@usuario_niveis", JSON.stringify(niveisObj)],
+        ["@usuario_vinculo", JSON.stringify(usuario.vinculo || VINCULO_VAZIO)],
       ];
 
       if (token) {
@@ -196,7 +255,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         "@restricao_lactose",
         "@restricao_amendoim",
         "@usuario_liberar_tracos",
-      ]).catch(() => {});
+      ]).catch((error: unknown) => {
+        console.warn("Não foi possível remover as preferências legadas.", error);
+      });
 
       setUsuarioAtual((prev) => ({
         ...prev,
@@ -234,6 +295,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           JSON.stringify(parcial.niveisSensibilidade),
         ]);
       }
+      if (parcial.vinculo !== undefined) {
+        pares.push(["@usuario_vinculo", JSON.stringify(parcial.vinculo)]);
+      }
 
       if (pares.length > 0) {
         await AsyncStorage.multiSet(pares);
@@ -254,7 +318,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               lactose: 1,
               amendoim: 1,
             },
-            nutricionista: parcial.nutricionista || null,
+            vinculo: parcial.vinculo || VINCULO_VAZIO,
             restricoesAtualizadasEm: parcial.restricoesAtualizadasEm || null,
             restricoesAtualizadasPor: parcial.restricoesAtualizadasPor || null,
           };
@@ -277,12 +341,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         };
       });
 
-            await AsyncStorage.multiRemove([
+      await AsyncStorage.multiRemove([
         "@restricao_gluten",
         "@restricao_lactose",
         "@restricao_amendoim",
         "@usuario_liberar_tracos",
-      ]).catch(() => {});
+      ]).catch((error: unknown) => {
+        console.warn("Não foi possível remover as preferências legadas.", error);
+      });
     },
     []
   );

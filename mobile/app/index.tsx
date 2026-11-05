@@ -88,7 +88,6 @@ export default function IndexSplashScreen() {
                   lactose: 1,
                   amendoim: 1,
                 },
-                nutricionista: res.data?.nutricionista || u.nutricionista || null,
                 restricoesAtualizadasEm: u.restricoesAtualizadasEm || null,
                 restricoesAtualizadasPor: u.restricoesAtualizadasPor || null,
               });

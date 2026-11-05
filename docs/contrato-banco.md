@@ -12,7 +12,6 @@ Este documento descreve o esquema oficial das coleções no MongoDB Atlas (`Rotu
   ```json
   {
     "mensagem": "Descrição amigável do erro em português",
-    "erro": "Descrição amigável do erro em português",
     "campos": {
       "nomeDoCampo": "Mensagem específica de validação do campo"
     }
@@ -25,7 +24,7 @@ Este documento descreve o esquema oficial das coleções no MongoDB Atlas (`Rotu
 
 ### 2.1 `users` (Model `User`)
 
-Armazena tanto pacientes do aplicativo mobile (`role: 'PACIENTE'`) quanto nutricionistas do painel web (`role: 'NUTRICIONISTA'`).
+Armazena os pacientes do aplicativo. Nutricionistas são mantidos pelo Painel Web em `nutricionistas`; campos antigos de CRN/tratamento em documentos de `users` não fazem parte do schema atual e não são apagados por esta mudança.
 
 | Campo | Tipo | Obrigatório | Padrão | Descrição |
 |---|---|---|---|---|
@@ -34,12 +33,9 @@ Armazena tanto pacientes do aplicativo mobile (`role: 'PACIENTE'`) quanto nutric
 | `email` | `String` | Sim (`unique`, `maxlength: 160`) | — | E-mail único (`lowercase`, `trim`) |
 | `senha` | `String` | Sim | — | Hash `bcryptjs` (`select: false` nas consultas padrão) |
 | `avatar` | `String \| null` | Não | `null` | Data URI Base64 (`data:image/jpeg;base64,...`) ou URL da foto de perfil |
-| `role` | `'PACIENTE' \| 'NUTRICIONISTA'` | Sim | `'PACIENTE'` | Papel do usuário no ecossistema |
-| `crn` | `String \| null` | Só Nutricionista (`maxlength: 30`) | `null` | Registro no Conselho Regional de Nutricionistas *(Nota TCC: o CRN é autodeclarado e não é validado junto ao CFN/CRN)* |
-| `tratamento` | `'Dr.' \| 'Dra.' \| 'Nutri.' \| null` | Não | `null` | Pronome de tratamento exibido para o paciente |
-| `codigoVinculo` | `String` (`unique`, `sparse`) | Só Nutricionista | `undefined` | Código único de 8 caracteres (`ABCDEFGHJKMNPQRSTUVWXYZ23456789`, sem `I, L, O, 0, 1`), armazenado sem hífen em maiúsculas (ex.: `ABCD2345`) e exibido como `ABCD-2345` |
-| `nutricionistaId` | `ObjectId \| null` (`index`) | Não | `null` | Referência (`ref: 'User'`) ao nutricionista vinculado (deve apontar exclusivamente para usuário com `role: 'NUTRICIONISTA'`) |
-| `vinculadoEm` | `Date \| null` | Não | `null` | Data/hora em que o paciente confirmou o vínculo atual |
+| `role` | `'PACIENTE' \| 'NUTRICIONISTA'` | Sim | `'PACIENTE'` | O cadastro mobile sempre cria `PACIENTE`; `NUTRICIONISTA` permanece apenas para compatibilidade com registros legados |
+| `nutricionistaId` | `ObjectId \| null` (`index`) | Não | `null` | Referência (`ref: 'Nutricionista'`) para `nutricionistas._id`; preenchida pelo Web somente após aprovação |
+| `vinculadoEm` | `Date \| null` | Não | `null` | Data/hora da aprovação do vínculo no painel Web |
 | `consentimentoVinculoEm` | `Date \| null` | Não | `null` | Data/hora do consentimento de compartilhamento de dados com o nutricionista |
 | `restricoes` | `Array<'gluten' \| 'lactose' \| 'amendoim'>` | Sim | `[]` | Lista de intolerâncias/alergias ativas do paciente |
 | `niveisSensibilidade.gluten` | `0 \| 1 \| 2` | Sim | `1` | `0` = Leve (ignora "pode conter"), `1` = Moderado, `2` = Grave |
@@ -52,12 +48,40 @@ Armazena tanto pacientes do aplicativo mobile (`role: 'PACIENTE'`) quanto nutric
 
 #### Índices de `users`
 1. `{ email: 1 }` — `unique: true`
-2. `{ codigoVinculo: 1 }` — `unique: true, sparse: true`
-3. `{ nutricionistaId: 1 }` — listagem rápida dos pacientes vinculados a um nutricionista.
+2. `{ nutricionistaId: 1 }` — listagem rápida dos pacientes vinculados a um nutricionista.
+
+> O índice legado de `codigoVinculo`, se já existir no banco, não é removido automaticamente; o código atual não o utiliza.
 
 ---
 
-### 2.2 `scanlogs` (Model `ScanLog`)
+### 2.2 `nutricionistas` (Model `Nutricionista`)
+
+Coleção criada e mantida exclusivamente pelo Painel Web. O mobile faz consultas somente de leitura.
+
+| Campo | Tipo | Descrição |
+|---|---|---|
+| `_id` | `ObjectId` | Identificador usado em `users.nutricionistaId` e `solicitacoesVinculo.nutricionistaId` |
+| `nome` | `String` | Nome exibido ao paciente |
+| `email` | `String` | E-mail de autenticação do painel; nunca enviado pelo mobile na busca pública |
+| `senha` | `String` | Hash bcrypt; lido pelo servidor somente para conferir login de nutricionista |
+| `crn` | `String` | CRN usado para busca normalizada |
+| `tratamento` | `String \| null` | Opcional; quando ausente, a interface usa “Nutricionista” |
+| `createdAt`, `updatedAt` | `Date` | Timestamps |
+
+### 2.3 `solicitacoesVinculo` (Model `SolicitacaoVinculo`)
+
+| Campo | Tipo | Descrição |
+|---|---|---|
+| `pacienteId` | `ObjectId` (`ref: 'User'`) | Paciente que solicitou |
+| `nutricionistaId` | `ObjectId` (`ref: 'Nutricionista'`) | Profissional solicitado |
+| `status` | `'PENDENTE' \| 'APROVADO' \| 'RECUSADO'` | Estado da solicitação |
+| `encerradaEm` | `Date \| null` | Data de cancelamento, aprovação/recusa ou encerramento do vínculo |
+| `encerradaPor` | `'PACIENTE' \| 'NUTRICIONISTA' \| null` | Responsável pelo encerramento |
+| `createdAt`, `updatedAt` | `Date` | Timestamps |
+
+Índices: índice único parcial `{ pacienteId: 1 }` quando `status: 'PENDENTE'`; índice `{ nutricionistaId: 1, status: 1, createdAt: -1 }` para a fila do painel Web.
+
+### 2.4 `scanlogs` (Model `ScanLog`)
 
 Histórico completo de escaneamentos realizados pelos pacientes (incluindo itens curtidos/favoritos).
 
@@ -147,7 +171,7 @@ Para obter o nome, e-mail e dados cadastrais do paciente a partir de `scan.userI
 
 ---
 
-### 2.3 `allergendictionaries` (Model `AllergenDictionary`)
+### 2.5 `allergendictionaries` (Model `AllergenDictionary`)
 
 Dicionário central de sinônimos, derivados químicos e exceções seguras para cada categoria de alérgeno.
 
@@ -162,7 +186,7 @@ Dicionário central de sinônimos, derivados químicos e exceções seguras para
 
 ---
 
-### 2.4 `feedbacks` (Model `Feedback`)
+### 2.6 `feedbacks` (Model `Feedback`)
 
 Mensagens e feedbacks enviados pelos usuários do aplicativo (simplificado).
 
@@ -180,11 +204,21 @@ Mensagens e feedbacks enviados pelos usuários do aplicativo (simplificado).
 
 ## 3. Regras de Vínculo Nutricionista ↔ Paciente e Visibilidade
 
-1. **Geração do Código (`codigoVinculo`)**:
-   - Gerado automaticamente no cadastro do nutricionista (`POST /auth/register-nutricionista`) com 8 caracteres do alfabeto `'ABCDEFGHJKMNPQRSTUVWXYZ23456789'` (sem `I`, `L`, `O`, `0`, `1`).
-   - Armazenado no banco em maiúsculas sem hífen (`ABCD2345`) e exibido na interface com máscara `XXXX-XXXX` (`ABCD-2345`).
-   - Regenerar o código (`POST /nutri/codigo/regenerar`) altera apenas o `codigoVinculo` para novos convites, **sem desvincular** os pacientes que já apontam para `nutricionistaId`.
-2. **Regra de Privacidade e Visibilidade Temporal (`FILTRAR_HISTORICO_DESDE_VINCULO = true`)**:
+1. **Busca e solicitação por CRN**:
+   - Mobile consulta `GET /api/vinculacoes/nutricionista/:crn` e envia `POST /api/vinculacoes/solicitar` ou `POST /auth/register` com `crnNutricionista`.
+   - O CRN é validado e normalizado no servidor. A busca compara uma expressão regular ancorada, construída a partir do CRN validado, com o campo `nutricionistas.crn`.
+   - O paciente confirma uma solicitação `PENDENTE`; o servidor grava `consentimentoVinculoEm`, mas não preenche `nutricionistaId` nem `vinculadoEm`.
+   - Se um paciente enviar uma solicitação e ainda tiver um `nutricionistaId` legado sem documento correspondente em `nutricionistas`, a transação remove essa referência inválida e `vinculadoEm`; referências reais válidas continuam bloqueando uma nova solicitação.
+2. **Aprovação pelo Painel Web**:
+   - O Web lista solicitações pendentes pelo próprio `nutricionistaId`; aprova ou recusa apenas solicitações `PENDENTE`.
+   - Ao aprovar, grava `users.nutricionistaId` como ObjectId de `nutricionistas._id`, grava `users.vinculadoEm` e altera a solicitação para `APROVADO`. O vínculo ativo é sempre determinado por `users.nutricionistaId`.
+   - O mobile considera o paciente vinculado somente quando `nutricionistaId` existe e o profissional correspondente é encontrado. `GET /api/vinculacoes/minha-solicitacao` e `GET /users/perfil` retornam o estado `NENHUM`, `PENDENTE`, `APROVADO` ou `RECUSADO`.
+3. **Cancelamento e desvinculação**:
+   - O paciente cancela uma solicitação pendente via `DELETE /api/vinculacoes/minha-solicitacao`; ela permanece na coleção como `RECUSADO`, encerrada por `PACIENTE`.
+   - O paciente desvincula via `DELETE /users/vinculo`; em transação, o servidor remove `nutricionistaId` e `vinculadoEm` e encerra a solicitação aprovada correspondente, sem apagá-la.
+4. **Registros históricos**:
+   - `users` mantém `crn` e `tratamento` nulos em alguns documentos antigos. O schema novo não os lê nem os remove; `nutricionistas` é a fonte oficial dos dados do profissional.
+5. **Regra de Privacidade e Visibilidade Temporal (`FILTRAR_HISTORICO_DESDE_VINCULO = true`)**:
    - O nutricionista **somente visualiza** os escaneamentos realizados pelo paciente **a partir da data/hora do vínculo** (`ScanLog.createdAt >= paciente.vinculadoEm`).
    - Escaneamentos anteriores ao vínculo permanecem privados para o paciente e não aparecem em `GET /nutri/pacientes`, `GET /nutri/pacientes/:id/historico` nem em `GET /nutri/pacientes/:id/historico/:logId/imagem`.
    - Caso o painel Web consulte diretamente o MongoDB via Mongoose/Driver, **deve sempre aplicar o filtro**:
@@ -194,11 +228,11 @@ Mensagens e feedbacks enviados pelos usuários do aplicativo (simplificado).
        ...(paciente.vinculadoEm ? { createdAt: { $gte: paciente.vinculadoEm } } : {}),
      };
      ```
-3. **Atualização de Restrições pelo Nutricionista**:
+6. **Atualização de Restrições pelo Nutricionista**:
    - Ao alterar as restrições ou níveis de sensibilidade de um paciente (`PUT /nutri/pacientes/:id/restricoes` ou via Web), grava-se:
      - `restricoesAtualizadasPor: 'NUTRICIONISTA'`
      - `restricoesAtualizadasEm: new Date()`
    - Quando o paciente abre a Home no aplicativo mobile e `restricoesAtualizadasEm` é mais recente que `@restricoes_vistas_em`, o app exibe um banner avisando: *"Seu nutricionista atualizou suas restrições"*.
-4. **Exclusão de Conta (`DELETE /users/me`)**:
+7. **Exclusão de Conta (`DELETE /users/me`)**:
    - **Paciente**: remove permanentemente seus `scanlogs`, `feedbacks`, `helpquestions`, pasta de imagens (`server/uploads/scans/<userId>`) e o documento em `users`.
    - **Nutricionista**: **não apaga** nenhuma conta de paciente; limpa `nutricionistaId: null, vinculadoEm: null, consentimentoVinculoEm: null` de todos os pacientes vinculados antes de remover o documento do nutricionista.

@@ -27,12 +27,13 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import AppHeader from "../components/Header/AppHeader";
 import TabBar from "@/components/TabBar/indexTab";
 import ConfirmModal from "../components/ConfirmModal";
+import VinculoCard from "../components/VinculoCard";
 import api, { extrairMensagemErro } from "../services/api";
 import {
   useAuth,
   NiveisSensibilidade,
-  NutricionistaVinculado,
 } from "../context/AuthContext";
+import { useVinculoSync } from "../hooks/useVinculoSync";
 
 const COLORS = {
   background: "#F5F7FA",
@@ -77,6 +78,13 @@ export default function PerfilScreen() {
     atualizarAvatarContexto,
     encerrarSessao,
   } = useAuth();
+  const {
+    vinculo,
+    erroInline: erroVinculo,
+    aviso: avisoVinculo,
+    limparAviso: limparAvisoVinculo,
+    sincronizar: sincronizarVinculo,
+  } = useVinculoSync();
 
   const cardWidth = Math.min(width - 32, 440);
 
@@ -96,12 +104,6 @@ export default function PerfilScreen() {
   const [erroInline, setErroInline] = useState<string | null>(null);
   const [sucessoInline, setSucessoInline] = useState<string | null>(null);
   const [modalSairVisivel, setModalSairVisivel] = useState(false);
-  const [nutricionista, setNutricionista] =
-    useState<NutricionistaVinculado | null>(
-      usuarioAtual?.nutricionista || null
-    );
-  const [modalDesvincularVisivel, setModalDesvincularVisivel] = useState(false);
-  const [desvinculando, setDesvinculando] = useState(false);
   const categoriasRestricao: {
     categoria: "gluten" | "lactose" | "amendoim";
     nome: string;
@@ -154,13 +156,11 @@ export default function PerfilScreen() {
         };
 
         const avatarResolucao = u.avatar || avatarCache || null;
-        const nutriServidor: NutricionistaVinculado | null =
-          res.data?.nutricionista || u.nutricionista || null;
+        const vinculoServidor = res.data?.vinculo || u.vinculo;
 
         setNome(u.nome || "Usuário");
         setEmail(u.email || "");
         setAvatar(avatarResolucao);
-        setNutricionista(nutriServidor);
 
         setDiasConsecutivos(Number(st.diasConsecutivos || 0));
         setEscaneamentosSegurosMes(Number(st.escaneamentosSegurosMes || 0));
@@ -174,7 +174,7 @@ export default function PerfilScreen() {
           avatar: avatarResolucao,
           restricoes: restServidor,
           niveisSensibilidade: niveisServidor,
-          nutricionista: nutriServidor,
+          vinculo: vinculoServidor,
           restricoesAtualizadasEm: u.restricoesAtualizadasEm || null,
           restricoesAtualizadasPor: u.restricoesAtualizadasPor || null,
         });
@@ -252,31 +252,6 @@ export default function PerfilScreen() {
     router.push(path as never);
   }
 
-  async function confirmarDesvinculo() {
-    if (desvinculando) return;
-    setDesvinculando(true);
-    setErroInline(null);
-    setSucessoInline(null);
-    try {
-      await api.delete("/users/vinculo");
-      setNutricionista(null);
-      if (usuarioAtual) {
-        await salvarSessaoUsuario(null, {
-          ...usuarioAtual,
-          nutricionista: null,
-        });
-      }
-      setModalDesvincularVisivel(false);
-      setSucessoInline("Nutricionista desvinculado com sucesso.");
-      setTimeout(() => setSucessoInline(null), 3500);
-    } catch (err: any) {
-      setModalDesvincularVisivel(false);
-      setErroInline(extrairMensagemErro(err));
-    } finally {
-      setDesvinculando(false);
-    }
-  }
-
   async function confirmarSaida() {
     setModalSairVisivel(false);
     await encerrarSessao();
@@ -317,10 +292,10 @@ export default function PerfilScreen() {
           />
         }
       >
-        {erroInline ? (
+        {erroInline || erroVinculo ? (
           <View style={styles.erroBanner}>
             <Ionicons name="alert-circle" size={16} color="#DC2626" />
-            <Text style={styles.erroBannerText}>{erroInline}</Text>
+            <Text style={styles.erroBannerText}>{erroInline || erroVinculo}</Text>
           </View>
         ) : null}
 
@@ -328,6 +303,16 @@ export default function PerfilScreen() {
           <View style={styles.sucessoBanner}>
             <Ionicons name="checkmark-circle" size={16} color="#15803D" />
             <Text style={styles.sucessoBannerText}>{sucessoInline}</Text>
+          </View>
+        ) : null}
+
+        {avisoVinculo ? (
+          <View style={styles.sucessoBanner}>
+            <Ionicons name="notifications" size={16} color="#15803D" />
+            <Text style={styles.sucessoBannerText}>{avisoVinculo}</Text>
+            <TouchableOpacity onPress={limparAvisoVinculo}>
+              <Feather name="x" size={16} color="#15803D" />
+            </TouchableOpacity>
           </View>
         ) : null}
 
@@ -420,56 +405,13 @@ export default function PerfilScreen() {
         <View style={styles.optionsSection}>
           <Text style={styles.sectionTitle}>MEU NUTRICIONISTA</Text>
 
-          <View style={styles.nutriCard}>
-            {nutricionista ? (
-              <View style={styles.nutriRow}>
-                <View style={styles.nutriIconBox}>
-                  <Ionicons name="medical" size={18} color={COLORS.green} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.nutriName}>
-                    {nutricionista.tratamento
-                      ? `${nutricionista.tratamento} `
-                      : ""}
-                    {nutricionista.nome}
-                  </Text>
-                  <Text style={styles.nutriSub}>
-                    {nutricionista.crn
-                      ? `CRN ${nutricionista.crn} • Vinculado`
-                      : "Acompanhamento ativo"}
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  style={styles.unlinkBtn}
-                  activeOpacity={0.8}
-                  onPress={() => setModalDesvincularVisivel(true)}
-                >
-                  <Text style={styles.unlinkBtnText}>Desvincular</Text>
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <View style={styles.nutriRow}>
-                <View style={styles.nutriIconBox}>
-                  <Feather name="user-plus" size={17} color={COLORS.green} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.nutriName}>Sem vínculo ativo</Text>
-                  <Text style={styles.nutriSub}>
-                    Conecte seu perfil ao código do seu nutricionista
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  style={styles.linkBtn}
-                  activeOpacity={0.85}
-                  onPress={() =>
-                    abrirRota("/vincular-nutricionista?modo=perfil")
-                  }
-                >
-                  <Text style={styles.linkBtnText}>Vincular nutricionista</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </View>
+          <VinculoCard
+            vinculo={vinculo}
+            onRefresh={async () => {
+              await sincronizarVinculo();
+              await carregarDadosPerfil(true);
+            }}
+          />
         </View>
 
         {/* Opções da Conta */}
@@ -553,17 +495,6 @@ export default function PerfilScreen() {
         onCancel={() => setModalSairVisivel(false)}
       />
 
-      <ConfirmModal
-        visible={modalDesvincularVisivel}
-        title="Desvincular nutricionista?"
-        message="O profissional deixará de ter acesso às suas restrições e ao histórico dos seus escaneamentos."
-        confirmText="Desvincular"
-        cancelText="Cancelar"
-        destructive
-        loading={desvinculando}
-        onConfirm={confirmarDesvinculo}
-        onCancel={() => setModalDesvincularVisivel(false)}
-      />
     </SafeAreaView>
   );
 }
