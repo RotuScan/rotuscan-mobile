@@ -23,6 +23,7 @@ export default function RootLayout() {
           options={{ headerShown: false }}
         />
         <Stack.Screen name="home" options={{ headerShown: false }} />
+        <Stack.Screen name="receitas" options={{ headerShown: false }} />
         <Stack.Screen name="scanner" options={{ headerShown: false }} />
         <Stack.Screen name="resultado" options={{ headerShown: false }} />
         <Stack.Screen name="historico" options={{ headerShown: false }} />

@@ -26,6 +26,12 @@ const MENU_ITEMS = [
     route: "/perfil",
   },
   {
+    id: "receitas",
+    label: "Receitas",
+    icon: "book-open",
+    route: "/receitas",
+  },
+  {
     id: "favoritos",
     label: "Favoritos",
     icon: "heart",
