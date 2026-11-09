@@ -776,6 +776,44 @@ async function handlerLogin(req, res) {
 app.post('/auth/login', limiterAuth, handlerLogin);
 app.post('/api/login', limiterAuth, handlerLogin);
 
+app.post('/auth/esqueci-senha', limiterAuth, async (req, res) => {
+  try {
+    const { email } = req.body || {};
+
+    if (!email || typeof email !== 'string' || !email.trim()) {
+      return res.status(400).json({
+        sucesso: false,
+        mensagem: 'Informe um endereço de e-mail válido.',
+      });
+    }
+
+    const emailNorm = email.trim().toLowerCase();
+    const usuario = await User.findOne({ email: emailNorm });
+
+    if (!usuario) {
+      return res.status(404).json({
+        sucesso: false,
+        mensagem: 'E-mail não encontrado.',
+      });
+    }
+
+    console.log(
+      `[Mock E-mail] Instruções de recuperação de senha enviadas com sucesso para: ${usuario.email}`
+    );
+
+    return res.status(200).json({
+      sucesso: true,
+      mensagem: 'Instruções de recuperação enviadas para o seu e-mail.',
+    });
+  } catch (err) {
+    console.error('Erro ao solicitar recuperação de senha:', err);
+    return res.status(500).json({
+      sucesso: false,
+      mensagem: 'Erro interno ao processar a recuperação de senha.',
+    });
+  }
+});
+
 app.get(
   '/api/vinculacoes/nutricionista/:crn',
   limiterVinculo,

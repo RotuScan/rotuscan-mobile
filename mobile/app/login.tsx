@@ -247,7 +247,7 @@ export default function LoginScreen() {
           <TouchableOpacity
             style={styles.forgotContainer}
             activeOpacity={0.7}
-            onPress={() => router.push("/ajuda" as never)}
+            onPress={() => router.push("/esqueceu-senha" as never)}
           >
             <Text style={styles.forgotText}>Esqueceu a senha?</Text>
           </TouchableOpacity>

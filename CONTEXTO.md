@@ -142,6 +142,7 @@ Detalhes em `docs/metodologia-ocr.md`.
 
 ## 10. Estado atual
 - **Pronto e Testado**:
+  - Fluxo de recuperação de senha (`mobile/app/esqueceu-senha.tsx` e `POST /auth/esqueci-senha` em `server/server.js`) integrado à tela de login.
   - Fluxo de vínculo por CRN: consulta pública, solicitação pendente, aprovação/recusa pelo Painel Web no banco compartilhado, cancelamento e desvinculação.
   - O mobile atualiza o vínculo ao abrir as telas, voltar ao app e, enquanto há solicitação pendente, periodicamente. O vínculo só fica ativo após aprovação, quando `users.nutricionistaId` aponta para `nutricionistas._id`.
   - Backend validado pelo smoke test CRN (14 verificações, inclusive autenticação, rate limits e recuperação de referências legadas inválidas). O Web não está no workspace; precisa consumir o contrato em `docs/contrato-banco.md`.
@@ -159,6 +160,7 @@ Detalhes em `docs/metodologia-ocr.md`.
 ## 11. Histórico resumido
 | Data | Marco / O que foi feito | Arquivos principais |
 | :--- | :--- | :--- |
+| 2026-11-08 | Criação da tela "Esqueceu sua Senha" no mobile, rota `POST /auth/esqueci-senha` (mock de envio) no servidor e atalho em `login.tsx`. | `mobile/app/esqueceu-senha.tsx`, `mobile/app/login.tsx`, `mobile/app/_layout.tsx`, `server/server.js` |
 | 2026-11-05 | Migração do vínculo para solicitação por CRN com aprovação Web, atualização das telas mobile, contrato do banco e smoke test. | `server/server.js`, `server/models/SolicitacaoVinculo.js`, `mobile/services/vinculo.ts`, `docs/contrato-banco.md` |
 | 2026-11-01 | Unificação do banco `RotuScanDB`, refatoração de models e scripts de diagnóstico. | `server/server.js`, `server/models/User.js`, `server/models/ScanLog.js` |
 | 2026-11-01 | Implementação do fluxo de vínculo nutricionista ↔ paciente com restrição de escopo temporal. | `server/server.js`, `mobile/app/vincular-nutricionista.tsx` |

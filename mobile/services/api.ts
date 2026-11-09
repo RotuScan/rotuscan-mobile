@@ -4,7 +4,7 @@ import { Platform } from "react-native";
 import { router } from "expo-router";
 
 export const API_URL = (
-  process.env.EXPO_PUBLIC_API_URL || "http://192.168.1.8:3000"
+  process.env.EXPO_PUBLIC_API_URL || "http://192.168.1.12:3000"
 ).replace(/\/+$/, "");
 
 export const CHAVES_STORAGE = [
@@ -93,7 +93,8 @@ api.interceptors.response.use(
       url.includes("/auth/login") ||
       url.includes("/api/login") ||
       url.includes("/auth/register") ||
-      url.includes("/api/cadastro");
+      url.includes("/api/cadastro") ||
+      url.includes("/auth/esqueci-senha");
 
     if (status === 401 && !ehRotaAuth) {
       await limparSessaoLocal();
