@@ -28,6 +28,7 @@ export default function RootLayout() {
         <Stack.Screen name="historico" options={{ headerShown: false }} />
         <Stack.Screen name="itensCurtidos" options={{ headerShown: false }} />
         <Stack.Screen name="perfil" options={{ headerShown: false }} />
+        <Stack.Screen name="chat" options={{ headerShown: false }} />
         <Stack.Screen name="editar-perfil" options={{ headerShown: false }} />
         <Stack.Screen name="dados-pessoais" options={{ headerShown: false }} />
         <Stack.Screen name="alertas" options={{ headerShown: false }} />

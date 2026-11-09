@@ -11,6 +11,7 @@ import bcrypt from 'bcryptjs';
 import sharp from 'sharp';
 import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import dns from "node:dns";
+import chatRoutes from './routes/chatRoutes.js';
 
 // DNS alternativo opcional para redes que bloqueiam consultas ao MongoDB Atlas
 if (process.env.DNS_SERVERS) {
@@ -63,6 +64,8 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// Rotas do chat entre paciente e nutricionista
+app.use('/chat', chatRoutes);
 
 
 function responderErro(res, status, mensagem, campos = undefined, extras = {}) {

@@ -25,6 +25,12 @@ const MENU_ITEMS = [
     icon: "user",
     route: "/perfil",
   },
+    {
+    id: "mensagens",
+    label: "Mensagens",
+    icon: "message-circle",
+    route: "/chat",
+  },
   {
     id: "favoritos",
     label: "Favoritos",
