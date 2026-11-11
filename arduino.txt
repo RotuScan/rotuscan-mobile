@@ -1,0 +1,124 @@
+const int BTN_PERFIL   = 6;
+const int BTN_SCAN     = 7;
+const int LED_VERDE    = 11;
+const int LED_VERMELHO = 12;
+// const int BUZZER       = 10;
+
+String restAtual = "Carregando...";
+String chavesRest[3] = {"", "", ""};
+
+void setup() {
+  pinMode(BTN_PERFIL, INPUT_PULLUP);
+  pinMode(BTN_SCAN, INPUT_PULLUP);
+  pinMode(LED_VERDE, OUTPUT);
+  pinMode(LED_VERMELHO, OUTPUT);
+  // pinMode(BUZZER, OUTPUT);
+
+  Serial.begin(9600);
+}
+
+void loop() {
+  if (pressionado(BTN_PERFIL)) {
+    apagarLeds();
+    // tone(BUZZER, 500, 50);
+    Serial.println("BTN_PERFIL_PRESS");
+  }
+
+  if (pressionado(BTN_SCAN)) {
+    Serial.println("BTN_SCAN_PRESS");
+  }
+
+  if (Serial.available()) {
+    String resposta = Serial.readStringUntil('\n');
+    resposta.trim();
+    
+    if (resposta.startsWith("PERFIL|")) {
+      parsePerfil(resposta);
+    } else if (resposta.indexOf('|') != -1) {
+      parseProduto(resposta);
+    }
+  }
+}
+
+bool pressionado(int pino) {
+  if (digitalRead(pino) == LOW) {
+    delay(40);
+    if (digitalRead(pino) == LOW) {
+      while (digitalRead(pino) == LOW);
+      return true;
+    }
+  }
+  return false;
+}
+
+void parsePerfil(String dados) {
+  int p1 = dados.indexOf('|');
+  int p2 = dados.indexOf('|', p1 + 1);
+  if (p1 == -1 || p2 == -1) return;
+
+  restAtual = dados.substring(p1 + 1, p2);
+  String chaves = dados.substring(p2 + 1);
+
+  for (int i = 0; i < 3; i++) chavesRest[i] = "";
+  
+  int idx = 0, virgula = 0;
+  while ((virgula = chaves.indexOf(',')) != -1 && idx < 3) {
+    chavesRest[idx++] = chaves.substring(0, virgula);
+    chaves = chaves.substring(virgula + 1);
+  }
+  if (idx < 3 && chaves.length() > 0) chavesRest[idx] = chaves;
+
+  Serial.println("\nRestrição: " + restAtual);
+}
+
+void parseProduto(String dados) {
+  int s1 = dados.indexOf('|');
+  int s2 = dados.indexOf('|', s1 + 1);
+  int s3 = dados.indexOf('|', s2 + 1);
+  if (s1 == -1 || s2 == -1) return;
+
+  String produto = dados.substring(0, s1);
+  String ingredientes = dados.substring(s1 + 1, s2);
+  if (s3 != -1) restAtual = dados.substring(s2 + 1, s3);
+
+  Serial.println("\nProduto: " + produto);
+  Serial.println("Ingredientes: " + ingredientes);
+  Serial.println("Restrição: " + restAtual);
+
+  if (contemAlergeno(ingredientes, dados)) {
+    digitalWrite(LED_VERMELHO, HIGH);
+    digitalWrite(LED_VERDE, LOW);
+    // tone(BUZZER, 500, 200); 
+    Serial.println("-> NÃO CONSUMIR");
+  } else {
+    digitalWrite(LED_VERDE, HIGH);
+    digitalWrite(LED_VERMELHO, LOW);
+    // tone(BUZZER, 1500, 50); 
+    Serial.println("-> PODE CONSUMIR");
+  }
+}
+
+bool contemAlergeno(String ingredientes, String linha) {
+  ingredientes.toLowerCase();
+  int ultimo = linha.lastIndexOf('|');
+  String chaves = linha.substring(ultimo + 1);
+  chaves.toLowerCase();
+
+  int pos = 0;
+  while ((pos = chaves.indexOf(',')) != -1) {
+    String chave = chaves.substring(0, pos);
+    chave.trim();
+    if (chave.length() > 0 && ingredientes.indexOf(chave) != -1) return true;
+    chaves = chaves.substring(pos + 1);
+  }
+  if (chaves.length() > 0) {
+    chaves.trim();
+    if (ingredientes.indexOf(chaves) != -1) return true;
+  }
+  return false;
+}
+
+void apagarLeds() {
+  digitalWrite(LED_VERDE, LOW);
+  digitalWrite(LED_VERMELHO, LOW);
+}

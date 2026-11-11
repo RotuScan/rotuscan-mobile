@@ -83,6 +83,9 @@ export default function ResultadoDetalhadoScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [avatarUsuario, setAvatarUsuario] = useState<string | null>(null);
+  const [arduinoEnviando, setArduinoEnviando] = useState(false);
+  const [arduinoMensagem, setArduinoMensagem] = useState<string | null>(null);
+  const [arduinoErro, setArduinoErro] = useState(false);
 
   const [detalhe, setDetalhe] = useState<DetalheScan | null>(() => {
     if (params.veredito === "INCONCLUSIVO") {
@@ -252,6 +255,24 @@ export default function ResultadoDetalhadoScreen() {
       setErro(extrairMensagemErro(err));
     } finally {
       setTogglingCurtir(false);
+    }
+  };
+
+  const enviarResultadoArduino = async () => {
+    if (!detalhe || arduinoEnviando) return;
+    setArduinoEnviando(true);
+    setArduinoMensagem(null);
+    setArduinoErro(false);
+    try {
+      const resposta = await api.post("/arduino/resultado", {
+        veredito: detalhe.veredito,
+      });
+      setArduinoMensagem(resposta.data?.mensagem || "Resultado enviado à estação RotuScan!");
+    } catch (err: any) {
+      setArduinoErro(true);
+      setArduinoMensagem(extrairMensagemErro(err));
+    } finally {
+      setArduinoEnviando(false);
     }
   };
 
@@ -721,6 +742,46 @@ export default function ResultadoDetalhadoScreen() {
           </>
         )}
 
+        {/* INTEGRACAO COM A ESTACAO FISICA ARDUINO */}
+        <View style={styles.arduinoCard}>
+          <View style={styles.arduinoHeader}>
+            <View style={styles.arduinoIconCircle}>
+              <MaterialCommunityIcons name="developer-board" size={22} color="#006D37" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.arduinoTitle}>Estação física RotuScan</Text>
+              <Text style={styles.arduinoSubtitle}>Reproduza este resultado no Arduino Uno.</Text>
+            </View>
+          </View>
+          <TouchableOpacity
+            style={styles.arduinoButton}
+            activeOpacity={0.85}
+            onPress={enviarResultadoArduino}
+            disabled={arduinoEnviando}
+          >
+            {arduinoEnviando ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <MaterialCommunityIcons name="usb-port" size={19} color="#FFFFFF" style={{ marginRight: 8 }} />
+            )}
+            <Text style={styles.arduinoButtonText}>
+              {arduinoEnviando ? "Enviando..." : "Enviar resultado ao Arduino"}
+            </Text>
+          </TouchableOpacity>
+          {arduinoMensagem ? (
+            <View style={[styles.arduinoFeedback, arduinoErro && styles.arduinoFeedbackError]}>
+              <Ionicons
+                name={arduinoErro ? "alert-circle" : "checkmark-circle"}
+                size={17}
+                color={arduinoErro ? "#B91C1C" : "#166534"}
+              />
+              <Text style={[styles.arduinoFeedbackText, arduinoErro && styles.arduinoFeedbackTextError]}>
+                {arduinoMensagem}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+
         {/* BOTÕES DE AÇÃO */}
         <TouchableOpacity
           style={styles.scanAgainButton}
@@ -1167,6 +1228,75 @@ const styles = StyleSheet.create({
     color: "#374151",
   },
   // BOTÕES DE AÇÃO
+  arduinoCard: {
+    marginTop: 18,
+    marginBottom: 8,
+    padding: 14,
+    borderRadius: 16,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#D1E7D8",
+  },
+  arduinoHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 13,
+    gap: 10,
+  },
+  arduinoIconCircle: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#E8F5EC",
+  },
+  arduinoTitle: {
+    fontFamily: "Geist_700Bold",
+    fontSize: 15,
+    color: "#1F2937",
+  },
+  arduinoSubtitle: {
+    fontFamily: "Geist_400Regular",
+    fontSize: 12,
+    color: "#6B7280",
+    marginTop: 2,
+  },
+  arduinoButton: {
+    minHeight: 46,
+    borderRadius: 12,
+    backgroundColor: "#006D37",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 14,
+  },
+  arduinoButtonText: {
+    fontFamily: "Geist_600SemiBold",
+    color: "#FFFFFF",
+    fontSize: 13,
+  },
+  arduinoFeedback: {
+    marginTop: 10,
+    padding: 10,
+    borderRadius: 9,
+    backgroundColor: "#F0FDF4",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
+  arduinoFeedbackError: {
+    backgroundColor: "#FEF2F2",
+  },
+  arduinoFeedbackText: {
+    flex: 1,
+    color: "#166534",
+    fontFamily: "Geist_500Medium",
+    fontSize: 12,
+  },
+  arduinoFeedbackTextError: {
+    color: "#B91C1C",
+  },
   scanAgainButton: {
     backgroundColor: "#006837",
     height: 50,

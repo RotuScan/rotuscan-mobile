@@ -121,6 +121,72 @@ sequenceDiagram
     end
 ```
 
+## Estação física RotuScan com Arduino Uno
+
+O projeto inclui um protótipo físico complementar ao aplicativo. Após analisar um rótulo, o usuário pode tocar em **Enviar resultado ao Arduino** na tela de resultado. O backend transmite o veredito pela porta USB/serial (9600 baud) para o Arduino Uno.
+
+### Componentes e ligações
+
+| Componente | Pino Arduino | Ligação |
+|---|---:|---|
+| LED verde (produto seguro) | D4 | Ânodo ao D4 por resistor de 220–330 Ω; cátodo ao GND |
+| LED vermelho (produto perigoso) | D5 | Ânodo ao D5 por resistor de 220–330 Ω; cátodo ao GND |
+| LED amarelo (espera/inconclusivo) | D6 | Ânodo ao D6 por resistor de 220–330 Ω; cátodo ao GND |
+| Buzzer ativo | D7 | Positivo ao D7; negativo ao GND |
+| HC-SR04 TRIG | D9 | TRIG ao D9 |
+| HC-SR04 ECHO | D10 | ECHO ao D10 |
+| HC-SR04 VCC/GND | 5V/GND | Alimentação e terra |
+| Botão | D2 e GND | Um terminal ao D2 e outro ao GND (`INPUT_PULLUP`) |
+
+Todos os componentes devem compartilhar o GND. Use resistores individuais nos LEDs. Não conecte LEDs diretamente sem resistor.
+
+### Estados da estação
+
+- **Aguardando:** o sensor ultrassônico detecta um objeto a até 15 cm e acende o LED amarelo.
+- **SEGURO:** LED verde aceso.
+- **PERIGOSO:** LED vermelho aceso e buzzer intermitente.
+- **INCONCLUSIVO:** LED amarelo piscando, sem alarme sonoro.
+- **Botão:** limpa o veredito e retorna ao estado de espera.
+
+O sensor ultrassônico detecta somente a aproximação de um objeto; ele não identifica ingredientes nem substitui a análise OCR do RotuScan.
+
+### Gravar o firmware no Arduino
+
+1. Abra `arduino/RotuScan_Arduino.ino` na Arduino IDE.
+2. Conecte o Arduino Uno por USB.
+3. Selecione **Arduino Uno** em Ferramentas → Placa e a porta COM correta em Ferramentas → Porta.
+4. Faça o upload do sketch.
+5. Feche o Monitor Serial antes de iniciar o backend, pois os dois não podem ocupar a mesma porta simultaneamente.
+
+### Configurar o backend
+
+Na pasta `server`, instale as dependências e configure a porta serial no `.env`:
+
+```env
+ARDUINO_PORT=COM3
+```
+
+Substitua `COM3` pela porta exibida na Arduino IDE ou no Gerenciador de Dispositivos do Windows (no Linux, por exemplo, `/dev/ttyACM0`). Depois execute:
+
+```bash
+npm install
+npm start
+```
+
+O backend usa `serialport` a 9600 baud. A porta deve estar livre e o Arduino conectado ao mesmo computador que executa o backend. A conexão é inicializada ao iniciar o servidor. Também estão disponíveis as rotas autenticadas `GET /arduino/status`, `GET /arduino/portas`, `POST /arduino/conectar` (JSON `{ "porta": "COM3" }`) e `POST /arduino/resultado` (JSON `{ "veredito": "PERIGOSO" }`).
+
+### Configurar e testar o aplicativo
+
+Configure `EXPO_PUBLIC_API_URL` para o endereço IP local do computador que executa o backend, por exemplo `http://192.168.0.10:3000`. O celular e o computador precisam estar na mesma rede Wi-Fi. Faça uma análise no aplicativo e, na tela do resultado, toque em **Enviar resultado ao Arduino**. O LED e o buzzer correspondentes devem responder. Para testar os três estados, use produtos de demonstração ou registros de teste; não interprete a estação como um sensor autônomo de alergênicos.
+
+### Solução de problemas
+
+- **Arduino não conectado:** confirme `ARDUINO_PORT`, cabo USB, driver e porta no Gerenciador de Dispositivos.
+- **Porta ocupada:** feche Arduino IDE/Monitor Serial e qualquer outro programa que esteja usando a porta.
+- **Celular não alcança o backend:** confirme o IP local em `EXPO_PUBLIC_API_URL`, a mesma rede Wi-Fi e as regras de firewall para a porta 3000.
+- **LED não acende:** confira polaridade, GND comum e resistor individual.
+- **Buzzer não toca:** confirme se é buzzer ativo e a polaridade.
+
 ## Tecnologias
 
 | Tecnologia | Versão real |
@@ -137,6 +203,7 @@ sequenceDiagram
 | TypeScript | ~6.0.3 |
 | MongoDB Atlas | RotuScanDB |
 | Tesseract OCR | 5.5.0 |
+| SerialPort | ^13.0.0 |
 
 ## Estrutura de pastas
 
@@ -145,7 +212,10 @@ rotuscan-mobile/
 ├── CONTEXTO.md                      # Visão geral de contexto e arquitetura do projeto
 ├── README.md                       # Documentação pública geral
 ├── LICENSE                         # Licença do projeto
+├── arduino/
+│   └── RotuScan_Arduino.ino       # Firmware da estação física Arduino Uno
 ├── docs/
+│   ├── ARDUINO_ROTUSCAN.md        # Montagem, integração e roteiro de demonstração
 │   ├── contrato-banco.md           # Contrato do banco e regras de negócio
 │   └── metodologia-ocr.md         # Pipeline de OCR, regras de negação e fuzzy match
 ├── mobile/

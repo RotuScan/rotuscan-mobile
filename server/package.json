@@ -2,9 +2,9 @@
   "name": "server",
   "version": "1.0.0",
   "description": "RotuScan Backend API",
-  "main": "server.js",
+  "main": "server.cjs",
   "scripts": {
-    "start": "node server.js",
+    "start": "node server.cjs",
     "inventory": "node scripts/inventory.js",
     "backup": "node scripts/backup.js",
     "migrate": "node scripts/migrate-usuarios-to-users.js",
@@ -31,6 +31,7 @@
     "multer": "^2.5.0",
     "node-tesseract-ocr": "^2.2.1",
     "pg": "^8.20.0",
+    "serialport": "^13.0.0",
     "sharp": "^0.35.5",
     "sqlite3": "^6.0.1"
   },
